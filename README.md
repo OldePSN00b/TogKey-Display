@@ -23,7 +23,7 @@ No administrator access, firmware changes, export file, or third-party HID packa
 - Drag the header to move the display; **Pinned** keeps it above other windows.
 - Optional `.vil` import with **Open .vil**.
 
-After editing in Vial, close Vial so the display can read the saved changes without competing HID traffic. A failed read retains the previous labels and shows a connection message.
+After editing in Vial, close Vial so the display can read the saved changes without competing HID traffic. A slow or failed read retains the previous labels and shows a connection message. The reader waits up to six seconds per request to accommodate macro execution, then retries automatically without clearing the selected layer. HID buffering is disabled so each transfer remains a single report.
 
 ## Label editing
 
@@ -37,7 +37,7 @@ Names are saved in **TogKey labels.json** beside the script. Keep this file when
 
 ## Active layer and knob tracking
 
-The supported firmware does **not** expose a direct active-layer query. On each launch, the display shows **Sync needed** and waits for you to select the layer that matches the pad's OLED. Button labels remain hidden until that selection. A disconnected/read-failed pad also requires a fresh selection after reconnecting.
+The supported firmware does **not** expose a direct active-layer query. On each launch, the display shows **Sync needed** and waits for you to select the layer that matches the pad's OLED. Button labels remain hidden until that selection. An actual disconnected pad requires a fresh selection after reconnecting; a temporary timeout or protocol retry does not clear synchronization.
 
 The display uses the OLED's **1–4** numbering. These correspond to **Vial layers 0–3**. Existing saved custom-label keys still use the Vial indices and remain compatible.
 

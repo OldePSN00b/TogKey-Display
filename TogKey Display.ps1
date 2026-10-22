@@ -564,11 +564,29 @@ function Receive-PadNotices {
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#70DEC2')
             }
             'status' { $controls.Connection.Text = $notice.Text }
-            'error' {
+            'busy' {
+                $controls.Connection.Text = $notice.Text
+                $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
+            }
+            'responsive' {
+                $controls.Connection.Text = $notice.Text
+                $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#70DEC2')
+            }
+            'retry' {
+                # A slow macro or a transient protocol error does not establish a USB disconnect.
+                $controls.Connection.Text = $notice.Text + ' Retrying automatically.'
+                $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
+                if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { $controls.TrackingStatus.Text = 'Reader recovering · layer kept; sync only if knob presses were missed' }
+            }
+            'disconnected' {
                 Require-PadSync
                 $controls.Connection.Text = $notice.Text + ' Previous labels retained.'
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
                 if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = 'Tracking interrupted · select a layer to resync after reconnecting' }
+            }
+            'error' {
+                $controls.Connection.Text = $notice.Text
+                $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
             }
             'tracking' { if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { $controls.TrackingStatus.Text = $notice.Text } }
             'press' {
