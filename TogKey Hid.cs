@@ -20,6 +20,7 @@ namespace TogKeyDisplay {
         public string Kind;
         public string Text;
         public Snapshot Data;
+        public int Epoch;
         public Notice(string kind, string text = null, Snapshot data = null) { Kind=kind; Text=text; Data=data; }
     }
 
@@ -203,6 +204,7 @@ namespace TogKeyDisplay {
         public volatile bool AutoRead=true;
         public volatile bool TrackKnob=false;
         public volatile bool Refresh=true;
+        public int TrackingEpoch;
         readonly CancellationTokenSource stop=new CancellationTokenSource();
         readonly ConcurrentQueue<Notice> notices=new ConcurrentQueue<Notice>();
         readonly Task worker;
@@ -219,6 +221,7 @@ namespace TogKeyDisplay {
                     Post("status","Connecting to pad…");
                     using(var hid=Hid.Open(stop.Token)) {
                         Snapshot snapshot=null; bool? wasDown=null; bool? unlocked=null;
+                        int observedEpoch=-1;
                         DateTime nextUnlock=DateTime.MinValue;
                         while(!stop.IsCancellationRequested) {
                             if(snapshot==null || Refresh || (AutoRead && DateTime.UtcNow>=nextRead)) {
@@ -232,6 +235,8 @@ namespace TogKeyDisplay {
                                 if(TrackKnob) Post("tracking","Knob tracking · estimated; select a layer to sync");
                             }
                             if(TrackKnob) {
+                                int epoch=Volatile.Read(ref TrackingEpoch);
+                                if(epoch!=observedEpoch) { wasDown=null; observedEpoch=epoch; }
                                 if(DateTime.UtcNow>=nextUnlock) {
                                     var state=hid.Query(Reader.Packet(0xFE,5));
                                     bool ready=state[0]==1 && state[1]==0;
@@ -245,7 +250,7 @@ namespace TogKeyDisplay {
                                     var matrix=hid.Query(Reader.Packet(2,3));
                                     if(matrix[0]!=2 || matrix[1]!=3) throw new IOException("Unexpected switch reply. Close Vial and retry.");
                                     bool down=(matrix[2]&4)!=0; // row 0, column 2: physical encoder push switch
-                                    if(wasDown==false && down) Post("press");
+                                    if(wasDown==false && down) notices.Enqueue(new Notice("press") { Epoch=epoch });
                                     wasDown=down;
                                 }
                             } else { wasDown=null; unlocked=null; nextUnlock=DateTime.MinValue; }

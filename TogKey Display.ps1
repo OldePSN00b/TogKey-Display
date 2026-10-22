@@ -201,11 +201,14 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <Button x:Name="Close" Grid.Column="2" Content="×" Width="30" Padding="0,5" VerticalAlignment="Top" ToolTip="Close"/>
       </Grid>
       <UniformGrid x:Name="LayerTabs" Columns="4" Margin="-3,0,-3,16">
-        <Button x:Name="Layer0" Content="Layer 0" Margin="3,0" Padding="5,10"/>
-        <Button x:Name="Layer1" Content="Layer 1" Margin="3,0" Padding="5,10"/>
-        <Button x:Name="Layer2" Content="Layer 2" Margin="3,0" Padding="5,10"/>
-        <Button x:Name="Layer3" Content="Layer 3" Margin="3,0" Padding="5,10"/>
+        <Button x:Name="Layer0" Content="Pad 1" Margin="3,0" Padding="5,10"/>
+        <Button x:Name="Layer1" Content="Pad 2" Margin="3,0" Padding="5,10"/>
+        <Button x:Name="Layer2" Content="Pad 3" Margin="3,0" Padding="5,10"/>
+        <Button x:Name="Layer3" Content="Pad 4" Margin="3,0" Padding="5,10"/>
       </UniformGrid>
+      <Border x:Name="SyncPrompt" Background="#342D20" CornerRadius="6" Padding="9,7" Margin="0,0,0,8">
+        <TextBlock Text="Click the layer shown on your pad's OLED to sync. Pad 1–4 matches Vial layers 0–3." Foreground="#EFCB85" FontSize="11" TextWrapping="Wrap"/>
+      </Border>
       <Grid x:Name="LayerHeader" Margin="0,0,0,12">
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <TextBlock x:Name="LayerHeading" Text="Layer 0" FontSize="22" FontWeight="SemiBold"/>
@@ -246,10 +249,10 @@ $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
@@ -391,17 +394,22 @@ function Update-Display {
     $defaultNames = @('','','','')
     foreach ($n in 0..3) {
         $name = Get-DisplayLabel "layer:$n" $defaultNames[$n]
-        $text = if ($name) { "$n · $name" } else { "Layer $n" }
+        $padNumber = $n + 1
+        $text = if ($name) { "$padNumber · $name" } else { "Pad $padNumber" }
         $tabText = [Windows.Controls.TextBlock]::new()
         $tabText.Text = $text; $tabText.TextTrimming = 'CharacterEllipsis'
         $controls["Layer$n"].Content = $tabText
-        $controls["Layer$n"].ToolTip = "$text · right-click to rename"
+        $controls["Layer$n"].ToolTip = "$text · Vial layer $n · click to sync, right-click to rename"
         $controls["Layer$n"].Tag = $n
         $controls["Layer$n"].DataContext = $defaultNames[$n]
     }
-    $controls.LayerHeading.Text = "Layer $layer"
+    $controls.LayerHeading.Text = if ($script:state.Synced) { "Pad layer $($layer+1)" } else { 'Choose pad layer' }
+    $controls.LayerMode.Text = if (-not $script:state.Synced) { 'SYNC NEEDED' } elseif ($controls.TrackKnob.IsChecked) { 'ESTIMATED LAYER' } else { 'MANUAL LAYER' }
+    $controls.SyncPrompt.Visibility = if ($script:state.Synced) { 'Collapsed' } else { 'Visible' }
+    $controls.Tiles.IsEnabled = $script:state.Synced
+    $controls.KnobPanel.IsEnabled = $script:state.Synced
     foreach ($n in 0..3) {
-        $selected = $n -eq $layer
+        $selected = $script:state.Synced -and $n -eq $layer
         $controls["Layer$n"].Background = [Windows.Media.BrushConverter]::new().ConvertFromString($(if ($selected) { '#70DEC2' } else { '#202A3A' }))
         $controls["Layer$n"].Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString($(if ($selected) { '#10231F' } else { '#B9C5D6' }))
     }
@@ -429,6 +437,11 @@ function Update-Display {
     $controls.KnobRotate.Tag = $turnLabel
     $controls.KnobRotate.Text = 'Turn: ' + (Get-DisplayLabel "knob:${layer}:turn" $turnLabel)
     foreach ($control in @($controls.KnobRotate,$controls.KnobPress)) { $control.ToolTip = 'Automatic: ' + $control.Tag + ' · right-click to rename' }
+    if (-not $script:state.Synced) {
+        foreach ($tile in $script:tileControls) { $tile.Label.Text = '—'; $tile.Hint.Text = ' ' }
+        $controls.KnobRotate.Text = 'Turn: —'
+        $controls.KnobPress.Text = 'Press: —'
+    }
     $sourceName = if ($script:state.Mode -eq 'live') { 'Pad mappings' } elseif ($script:state.Mode -eq 'empty') { 'No mappings loaded' } else { [IO.Path]::GetFileName($script:state.Path) }
     $controls.Source.Text = $sourceName + ' · read ' + $script:state.Refreshed.ToString('h:mm:ss tt')
     $controls.Source.ToolTip = if ($script:state.Mode -eq 'live') { 'Read directly from the pad; active layer is not reported by firmware.' } else { $script:state.Path }
@@ -436,6 +449,24 @@ function Update-Display {
 
 function Set-DisplayData($candidate) {
     $script:state.Data = $candidate
+    Update-Display
+}
+function Confirm-PadLayer([int]$Layer) {
+    $script:state.Layer = $Layer
+    $script:state.Synced = $true
+    $script:state.Generation++
+    if ($script:state.Monitor) {
+        # Discard queued presses from before this explicit synchronization and rebase the switch.
+        $script:state.Monitor.TrackingEpoch = $script:state.Generation
+        $script:state.Monitor.TrackKnob = [bool]$controls.TrackKnob.IsChecked
+    }
+    $controls.TrackingStatus.Text = if ($controls.TrackKnob.IsChecked) { 'Synced to pad layer ' + ($Layer+1) + ' · following observed knob presses' } else { 'Layer selected · tracking off' }
+    Update-Display
+}
+function Require-PadSync {
+    $script:state.Synced = $false
+    if ($script:state.Monitor) { $script:state.Monitor.TrackKnob = $false }
+    $controls.TrackingStatus.Text = 'Select the layer shown on your pad before knob tracking begins'
     Update-Display
 }
 function Open-Layout([string]$Path) {
@@ -466,12 +497,12 @@ function Select-Layout {
 }
 foreach ($n in 0..3) {
     $controls["Layer$n"].Tag = $n
-    $controls["Layer$n"].Add_Click({ param($sender, $eventArgs) $script:state.Layer = [int]$sender.Tag; Update-Display })
+    $controls["Layer$n"].Add_Click({ param($sender, $eventArgs) Confirm-PadLayer ([int]$sender.Tag) })
     $controls["Layer$n"].Add_MouseRightButtonUp({
         param($sender, $eventArgs)
         $number = [int]$sender.Tag
         $automatic = [string]$sender.DataContext
-        Edit-DisplayLabel "layer:$number" $automatic "Layer $number name"
+        Edit-DisplayLabel "layer:$number" $automatic "Pad layer $($number+1) name (Vial $number)"
         $eventArgs.Handled = $true
     })
 }
@@ -484,7 +515,7 @@ foreach ($i in 0..5) {
         $row = 1 + [int][Math]::Floor($position / 3)
         $column = $position % 3
         $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
-        Edit-DisplayLabel "button:${layer}:$position" $automatic "Layer $layer · button $($position+1)"
+        Edit-DisplayLabel "button:${layer}:$position" $automatic "Pad layer $($layer+1) · button $($position+1)"
         $eventArgs.Handled = $true
     })
 }
@@ -534,19 +565,20 @@ function Receive-PadNotices {
             }
             'status' { $controls.Connection.Text = $notice.Text }
             'error' {
+                Require-PadSync
                 $controls.Connection.Text = $notice.Text + ' Previous labels retained.'
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
                 if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = 'Tracking interrupted · select a layer to resync after reconnecting' }
             }
-            'tracking' { if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = $notice.Text } }
+            'tracking' { if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { $controls.TrackingStatus.Text = $notice.Text } }
             'press' {
-                if ($controls.TrackKnob.IsChecked) {
+                if ($controls.TrackKnob.IsChecked -and $script:state.Synced -and $notice.Epoch -eq $script:state.Generation) {
                     $action = (Get-ResolvedKey $script:state.Data $script:state.Layer 0 2).Code
                     if ($action -in @('USER00','QK_KB_0','TOG_LAY')) {
                         $script:state.Layer = ($script:state.Layer + 1) % 4
                         Update-Display
                         $controls.TrackingStatus.Text = 'Knob press seen · estimated layer; select a layer if out of sync'
-                    } else { $controls.TrackingStatus.Text = 'Knob action differs on this layer · select the layer manually' }
+                    } else { Require-PadSync; $controls.TrackingStatus.Text = 'Knob action differs on this layer · select the layer manually' }
                 }
             }
         }
@@ -568,7 +600,8 @@ function Start-PadMonitor {
             $script:state.Timer.Start()
         }
         $script:state.Monitor.AutoRead = [bool]$controls.AutoRead.IsChecked
-        $script:state.Monitor.TrackKnob = [bool]$controls.TrackKnob.IsChecked
+        $script:state.Monitor.TrackingEpoch = $script:state.Generation
+        $script:state.Monitor.TrackKnob = [bool]$controls.TrackKnob.IsChecked -and $script:state.Synced
         $script:state.Monitor.Refresh = $true
     } catch { $controls.Connection.Text = 'Reader could not start: ' + $_.Exception.Message }
 }
@@ -579,14 +612,14 @@ $controls.AutoRead.Add_Unchecked({
     $controls.Connection.Text = 'Auto-read paused · Read from pad updates now'
 })
 $controls.TrackKnob.Add_Checked({
-    $controls.LayerMode.Text = 'ESTIMATED LAYER'
-    $controls.TrackingStatus.Text = 'Checking switch access · sync the layer using the buttons above'
+    $controls.TrackingStatus.Text = if ($script:state.Synced) { 'Checking switch access…' } else { 'Select the layer shown on your pad before knob tracking begins' }
+    Update-Display
     Start-PadMonitor
 })
 $controls.TrackKnob.Add_Unchecked({
     if ($script:state.Monitor) { $script:state.Monitor.TrackKnob = $false }
-    $controls.LayerMode.Text = 'MANUAL LAYER'
     $controls.TrackingStatus.Text = 'Tracking off · select layers manually'
+    Update-Display
 })
 
 function Set-CompactDisplay([bool]$Enabled) {

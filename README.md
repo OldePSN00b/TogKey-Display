@@ -10,6 +10,7 @@ This is an independent community utility, not an official TogKey or Vial applica
 2. Extract this folder to a writable location. Keep the included files together.
 3. Connect the Pad Plus and close Vial, including any Vial browser tab.
 4. Double-click **Start TogKey Display.cmd**.
+5. Click **Pad 1**, **Pad 2**, **Pad 3**, or **Pad 4** to match the layer currently shown on the pad's OLED. The app waits for this selection instead of assuming the pad is on its first layer.
 
 No administrator access, firmware changes, export file, or third-party HID package is required. The launcher starts PowerShell with a hidden console and a process-specific execution-policy bypass; it does not change the machine's execution-policy setting.
 
@@ -36,9 +37,11 @@ Names are saved in **TogKey labels.json** beside the script. Keep this file when
 
 ## Active layer and knob tracking
 
-The supported firmware does **not** expose a direct active-layer query. Select the layer that matches the pad's OLED.
+The supported firmware does **not** expose a direct active-layer query. On each launch, the display shows **Sync needed** and waits for you to select the layer that matches the pad's OLED. Button labels remain hidden until that selection. A disconnected/read-failed pad also requires a fresh selection after reconnecting.
 
-To follow physical knob presses, enable **Follow knob presses** and select the current layer once to synchronize. The display then advances when it observes a knob press, provided the knob is assigned `TOG_LAY` / `USER00` on the displayed layer.
+The display uses the OLED's **1–4** numbering. These correspond to **Vial layers 0–3**. Existing saved custom-label keys still use the Vial indices and remain compatible.
+
+To follow physical knob presses, enable **Follow knob presses** and select the current layer once to synchronize. Switch tracking waits until that selection. The display then advances when it observes a knob press, provided the knob is assigned `TOG_LAY` / `USER00` on the displayed layer. Clicking a layer again explicitly resynchronizes and discards older queued press events.
 
 This is an estimate. Fast taps, reconnects, mapping-read pauses, or other layer-changing keys can cause drift. Select the matching layer again to resynchronize. Compact view leaves tracking and auto-read running.
 
