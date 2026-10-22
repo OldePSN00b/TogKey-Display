@@ -1,0 +1,11 @@
+# Local display names and exports
+TogKey labels.json
+*.vil
+*.tmp
+*.log
+
+# Local editor / OS files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
