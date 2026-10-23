@@ -44,6 +44,23 @@ If the display still asks you to unlock, return to Vial and complete the countdo
 
 After editing in Vial, close Vial so the display can read the saved changes without competing HID traffic. A slow or failed read retains the previous labels and shows a connection message. The reader waits up to six seconds per request to accommodate macro execution, then retries automatically without clearing the selected layer. HID buffering is disabled so each transfer remains a single report.
 
+### Editing mappings or macros in Vial
+
+The pad's Raw HID protocol does not identify which application requested a reply. Vial and the display must take turns using that interface. This release opens its live session exclusively, filters recognizable stale replies, and shows an in-use message if another application already has the pad open.
+
+1. In the display, uncheck **Compact** if necessary to reveal the controls.
+2. Click **Edit in Vial**. The display stops its reader, waits for the connection to be released, and **launches the Vial desktop application automatically**. Turning off **Auto-read mappings** alone is not sufficient, because lock checks and knob monitoring can still use the connection.
+3. Make your mapping or macro changes in Vial. The display stays paused while you edit.
+4. Close Vial, including its browser tab, without unplugging the pad.
+5. Click **Resume display** (or **Read from pad**). The display reconnects and loads the saved changes.
+6. Select **Pad 1–4** to match the OLED again, since knob presses during the pause were not observed. Your chosen auto-read and tracking options are retained.
+
+If you see **Pad is in use**, close Vial and any other running copies of the display, then click **Read from pad**. Macro editing does not itself change the firmware's VIA protocol version. Closing the display before opening Vial is also a valid alternative to the pause button.
+
+The launcher looks for Vial on the system PATH, in standard installation locations, and beside the display script. If it cannot find Vial, a file picker asks you to locate the application's `.exe`. Install the [Vial desktop application](https://get.vial.today/) first if needed. Your selected or detected executable location is remembered in **TogKey settings.json** beside the script. Keep that file when upgrading; `.gitignore` excludes it from sharing. If you use browser-based Vial instead, cancel the file picker and open the browser version manually while the display is paused.
+
+The display does not close Vial for you or resume automatically while Vial is open. Close Vial when done, then click **Resume display**. If the pad connection is still closing or launching fails, the display remains paused and shows a status message.
+
 ## Label editing
 
 Right-click a button tile, layer tab, or knob action to edit its display name. This also works in compact view. **Use automatic** removes an override.
@@ -53,6 +70,8 @@ Automatic labels use key names, website hostnames, application executable filena
 Custom button and knob labels belong to a position on a particular layer. They survive mapping refreshes and continue to apply even if that position is assigned a different action, until reset. Layer selection, label editing, and tile clicks do not change the pad or execute its macros.
 
 Names are saved in **TogKey labels.json** beside the script. Keep this file when upgrading. Do not include it in a public release unless you intend to share those names; `.gitignore` excludes it. No label file or personal export is included in this package.
+
+Local application settings, including the Vial executable path, are stored separately in **TogKey settings.json**. This file is also excluded from Git and is not bundled in releases.
 
 ## Active layer and knob tracking
 

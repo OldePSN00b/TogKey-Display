@@ -11,6 +11,9 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 namespace TogKeyDisplay {
+    public sealed class PadInUseException : IOException {
+        public PadInUseException() : base("Pad is in use. Close Vial and other display copies, then click Read from pad.") { }
+    }
     public sealed class PadBusyException : IOException {
         public PadBusyException() : base("The pad is taking longer to reply; layer selection kept.") { }
     }
@@ -46,6 +49,7 @@ namespace TogKeyDisplay {
         [DllImport("hid.dll")] static extern bool HidD_GetAttributes(SafeFileHandle handle, ref Attributes attributes);
         [DllImport("hid.dll")] static extern bool HidD_GetPreparsedData(SafeFileHandle handle, out IntPtr data);
         [DllImport("hid.dll")] static extern bool HidD_FreePreparsedData(IntPtr data);
+        [DllImport("hid.dll")] static extern bool HidD_FlushQueue(SafeFileHandle handle);
         [DllImport("hid.dll")] static extern int HidP_GetCaps(IntPtr data, out Caps caps);
         [DllImport("setupapi.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr SetupDiGetClassDevs(ref Guid guid, IntPtr enumerator, IntPtr parent, uint flags);
         [DllImport("setupapi.dll", SetLastError=true)] static extern bool SetupDiEnumDeviceInterfaces(IntPtr set, IntPtr device, ref Guid guid, uint index, ref InterfaceData data);
@@ -60,8 +64,14 @@ namespace TogKeyDisplay {
         internal Hid(Stream reportStream,CancellationToken token) { stream=reportStream; cancellation=token; }
         Hid(string path, CancellationToken token) {
             cancellation=token;
-            var handle=CreateFile(path, 0xC0000000, 3, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero);
-            if (handle.IsInvalid) { handle.Dispose(); throw new IOException("Cannot open the pad. Close Vial or its browser tab, then try again.", new Win32Exception(Marshal.GetLastWin32Error())); }
+            // Raw HID replies have no transaction ID. Do not share a live command session.
+            var handle=CreateFile(path, 0xC0000000, 0, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero);
+            if (handle.IsInvalid) {
+                int error=Marshal.GetLastWin32Error(); handle.Dispose();
+                if(error==32 || error==33 || error==5) throw new PadInUseException();
+                throw new IOException("Cannot open the pad. Close Vial or its browser tab, then try again.",new Win32Exception(error));
+            }
+            HidD_FlushQueue(handle);
             // HID transfers are individual reports: disable FileStream's byte-stream buffering.
             try { stream=new FileStream(handle, FileAccess.ReadWrite, 1, true); }
             catch { handle.Dispose(); throw; }
@@ -71,6 +81,7 @@ namespace TogKeyDisplay {
             IntPtr set=SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, 0x12);
             if (set==new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
             var paths=new List<string>();
+            bool matchingInterfaceBusy=false;
             try {
                 for (uint index=0; ; index++) {
                     token.ThrowIfCancellationRequested();
@@ -90,7 +101,11 @@ namespace TogKeyDisplay {
                         // Do not open ordinary keyboard or unrelated HID interfaces.
                         if (path==null || path.IndexOf("vid_feed&pid_8687",StringComparison.OrdinalIgnoreCase)<0) continue;
                         using (var handle=CreateFile(path,0,3,IntPtr.Zero,3,0,IntPtr.Zero)) {
-                            if (handle.IsInvalid) continue;
+                            if (handle.IsInvalid) {
+                                int error=Marshal.GetLastWin32Error();
+                                if(error==32 || error==33 || error==5) matchingInterfaceBusy=true;
+                                continue;
+                            }
                             var attr=new Attributes { Size=Marshal.SizeOf<Attributes>() };
                             if (!HidD_GetAttributes(handle,ref attr) || attr.Vendor!=0xFEED || attr.Product!=0x8687) continue;
                             if (!HidD_GetPreparsedData(handle,out IntPtr pp)) continue;
@@ -102,6 +117,7 @@ namespace TogKeyDisplay {
                     } finally { Marshal.FreeHGlobal(detail); }
                 }
             } finally { SetupDiDestroyDeviceInfoList(set); }
+            if (paths.Count==0 && matchingInterfaceBusy) throw new PadInUseException();
             if (paths.Count==0) throw new PadDisconnectedException("Pad not found. Connect your TogKey Pad Plus and close Vial or its browser tab.");
             if (paths.Count>1) throw new IOException("More than one Pad Plus is connected. Leave one connected and retry.");
             return new Hid(paths[0],token);
@@ -126,16 +142,22 @@ namespace TogKeyDisplay {
                 timeout.CancelAfter(6000);
                 try {
                     stream.WriteAsync(report,0,report.Length,timeout.Token).GetAwaiter().GetResult();
-                    byte[] input=new byte[33];
-                    var pending=stream.ReadAsync(input,0,input.Length,timeout.Token);
-                    bool delayed=!pending.IsCompleted && Task.WhenAny(pending,Task.Delay(400,timeout.Token)).GetAwaiter().GetResult()!=pending;
-                    if(delayed) Waiting?.Invoke();
-                    int count=pending.GetAwaiter().GetResult();
-                    if(count==0) throw new PadDisconnectedException("The pad disconnected. Reconnect it, then match the OLED layer.");
-                    if (count!=33 || input[0]!=0) throw new IOException("The pad returned an unexpected HID report.");
-                    byte[] result=new byte[32]; Array.Copy(input,1,result,0,32);
-                    if(delayed) Replied?.Invoke();
-                    return result;
+                    bool announced=false;
+                    while(true) {
+                        timeout.Token.ThrowIfCancellationRequested();
+                        byte[] input=new byte[33];
+                        var pending=stream.ReadAsync(input,0,input.Length,timeout.Token);
+                        bool delayed=!pending.IsCompleted && Task.WhenAny(pending,Task.Delay(400,timeout.Token)).GetAwaiter().GetResult()!=pending;
+                        if(delayed && !announced) { Waiting?.Invoke(); announced=true; }
+                        int count=pending.GetAwaiter().GetResult();
+                        if(count==0) throw new PadDisconnectedException("The pad disconnected. Reconnect it, then match the OLED layer.");
+                        if(count!=33 || input[0]!=0) continue;
+                        byte[] result=new byte[32]; Array.Copy(input,1,result,0,32);
+                        // Discard stale/foreign reports without resending the pending request.
+                        if(!MatchesResponse(payload,result)) continue;
+                        if(announced) Replied?.Invoke();
+                        return result;
+                    }
                 } catch (OperationCanceledException) {
                     if (cancellation.IsCancellationRequested) throw;
                     throw new PadBusyException();
@@ -145,6 +167,30 @@ namespace TogKeyDisplay {
                     throw;
                 }
             }
+        }
+        public static bool MatchesResponse(byte[] request,byte[] reply) {
+            if(!IsReadCommand(request) || reply==null || reply.Length!=32) return false;
+            if(request[0]==0xFE) {
+                if(request[1]==0) {
+                    // The keyboard ID response has no echo header, but ends in zero padding.
+                    for(int i=13;i<32;i++) if(reply[i]!=0) return false;
+                    return reply[0]>0 && reply[1]==0 && reply[2]==0 && reply[3]==0;
+                }
+                if(request[1]==5) {
+                    if(reply[0]>1 || reply[1]>1) return false;
+                    for(int i=2;i<32;i++) if(reply[i]!=255 && reply[i]>2) return false;
+                    return true;
+                }
+                // Encoder replies replace their first four bytes and preserve the zero tail.
+                for(int i=4;i<32;i++) if(reply[i]!=0) return false;
+                return !(reply[0]==0xFE && reply[1]==3);
+            }
+            if(reply[0]!=request[0]) return false;
+            if(request[0]==0x12 || request[0]==0x0E) return reply[1]==request[1] && reply[2]==request[2] && reply[3]==request[3];
+            if(request[0]==2) return reply[1]==request[1];
+            int padding=request[0]==1 || request[0]==0x0D ? 3 : 2;
+            for(int i=padding;i<32;i++) if(reply[i]!=0) return false;
+            return request[0]!=1 || (reply[1]==0 && reply[2]>0 && reply[2]<32);
         }
         public void Dispose() { stream.Dispose(); }
     }
@@ -243,7 +289,6 @@ namespace TogKeyDisplay {
                 try {
                     if(!Refresh && !AutoRead && !TrackKnob) { Wait(100); continue; }
                     Refresh=false;
-                    Post("status","Connecting to pad…");
                     using(var hid=Hid.Open(stop.Token)) {
                         hid.Waiting=()=>Post("busy","Waiting for pad · layer selection kept");
                         hid.Replied=()=>Post("responsive","Pad responding · layer selection kept");
@@ -254,7 +299,6 @@ namespace TogKeyDisplay {
                         while(!stop.IsCancellationRequested) {
                             if(snapshot==null || Refresh || (AutoRead && DateTime.UtcNow>=nextRead)) {
                                 Refresh=false;
-                                Post("status","Reading saved mappings…");
                                 snapshot=Reader.Read(hid.Query);
                                 Post("snapshot",null,snapshot);
                                 nextRead=DateTime.UtcNow.AddSeconds(8);
@@ -294,7 +338,7 @@ namespace TogKeyDisplay {
                     bool disconnected=ex is PadDisconnectedException;
                     Post(disconnected ? "disconnected" : "retry",ex.Message);
                     // Remain responsive to a user-requested retry without repeating error dialogs.
-                    int steps=disconnected ? 20 : ex is PadBusyException ? 5 : 15;
+                    int steps=ex is PadInUseException ? 30 : disconnected ? 20 : ex is PadBusyException ? 5 : 15;
                     for(int i=0;i<steps && !Refresh && !stop.IsCancellationRequested;i++) {
                         try { Wait(100); } catch(OperationCanceledException) { break; }
                     }
@@ -303,5 +347,6 @@ namespace TogKeyDisplay {
             }
         }
         public void Dispose() { stop.Cancel(); }
+        public bool WaitForStop(int milliseconds) { return worker.Wait(milliseconds); }
     }
 }
