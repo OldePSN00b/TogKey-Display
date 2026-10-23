@@ -8,11 +8,28 @@ This is an independent community utility, not an official TogKey or Vial applica
 
 1. Install [PowerShell 7 for Windows](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) if it is not already installed.
 2. Extract this folder to a writable location. Keep the included files together.
-3. Connect the Pad Plus and close Vial, including any Vial browser tab.
+3. Connect the Pad Plus. **Unlock it in Vial before using automatic knob tracking**, following the instructions below. Then close Vial, including any Vial browser tab, without unplugging the pad.
 4. Double-click **Start TogKey Display.cmd**.
 5. Click **Pad 1**, **Pad 2**, **Pad 3**, or **Pad 4** to match the layer currently shown on the pad's OLED. The app waits for this selection instead of assuming the pad is on its first layer.
 
 No administrator access, firmware changes, export file, or third-party HID package is required. The launcher starts PowerShell with a hidden console and a process-specific execution-policy bypass; it does not change the machine's execution-policy setting.
+
+## Unlock the TogKey Pad Plus in Vial
+
+**The Pad Plus must be unlocked for “Follow knob presses” to work.** Vial protects physical-switch monitoring while the keyboard is locked. Reading saved button mappings and selecting a layer manually can still work while it is locked. TogKey Display checks the unlock status but does not unlock the pad itself.
+
+1. **Close TogKey Display** so only Vial communicates with the pad during unlocking.
+2. **Connect the Pad Plus by USB** and open the [Vial desktop application](https://get.vial.today/) or [Vial in a compatible browser](https://vial.rocks/). If the browser asks for a device, select the Pad Plus and allow the connection.
+3. **Select the Pad Plus** in Vial's device list. Confirm that its key layout appears.
+4. Open **Security → Unlock**. In the desktop application, **Ctrl+U** is the shortcut.
+5. Vial opens an unlock prompt showing the physical keys to hold. For the Pad Plus firmware supported by this utility, these are the **upper-left and lower-left keys of the six main buttons**—the two buttons in the leftmost column, not the knob. If your Vial prompt highlights a different pair, use the keys it highlights.
+6. **Press and hold both highlighted keys together** until Vial's progress bar finishes and the unlock dialog closes. Keep holding for the full countdown; releasing early can restart it. This is a physical key combination, regardless of the macros or actions assigned to those buttons.
+7. **Close Vial or its browser tab. Leave the USB cable connected.** Do not select **Security → Lock**, because that disables switch monitoring again.
+8. Start **TogKey Display**, select **Pad 1–4** to match the OLED, and enable **Follow knob presses**. If you are in compact view, uncheck **Compact** temporarily to access that option.
+
+Unplugging the pad, resetting it, or losing USB power normally locks it again. Repeat these steps after reconnecting if the display asks you to unlock. Closing Vial alone does not relock the pad. Vial's unlock procedure and relocking behavior are described in its [security documentation](https://get.vial.today/docs/security.html).
+
+If the display still asks you to unlock, return to Vial and complete the countdown again, then close Vial and click **Read from pad**. Unlocking and choosing the current layer are separate steps: unlocking permits switch monitoring; selecting **Pad 1–4** synchronizes the estimated layer.
 
 ## Features
 
@@ -45,7 +62,7 @@ To follow physical knob presses, enable **Follow knob presses** and select the c
 
 This is an estimate. Fast taps, reconnects, mapping-read pauses, or other layer-changing keys can cause drift. Select the matching layer again to resynchronize. Compact view leaves tracking and auto-read running.
 
-Switch monitoring requires an unlocked pad. If prompted, unlock through Vial's Security menu, then close Vial. This utility reads the unlock status but never unlocks the device itself.
+Switch monitoring requires an unlocked pad. Follow [Unlock the TogKey Pad Plus in Vial](#unlock-the-togkey-pad-plus-in-vial), then close Vial without unplugging the pad. This utility reads the unlock status but never unlocks the device itself.
 
 ## Supported hardware
 
