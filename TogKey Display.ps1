@@ -200,6 +200,13 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <Button x:Name="Minimize" Grid.Column="1" Content="−" Width="30" Padding="0,5" Margin="0,0,5,0" VerticalAlignment="Top" ToolTip="Minimize"/>
         <Button x:Name="Close" Grid.Column="2" Content="×" Width="30" Padding="0,5" VerticalAlignment="Top" ToolTip="Close"/>
       </Grid>
+      <Border x:Name="LockPanel" Background="#342D20" CornerRadius="6" Padding="9,7" Margin="0,0,0,10">
+        <StackPanel>
+          <TextBlock x:Name="LockHeading" Text="Checking pad lock status…" FontSize="11" FontWeight="SemiBold" Foreground="#EFCB85" TextWrapping="Wrap"/>
+          <TextBlock x:Name="LockHelp" Text="" FontSize="10" Foreground="#EFCB85" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"/>
+          <Button x:Name="UnlockHelp" Content="How to unlock" FontSize="10" HorizontalAlignment="Left" Padding="7,5" Margin="0,6,0,0" Visibility="Collapsed"/>
+        </StackPanel>
+      </Border>
       <UniformGrid x:Name="LayerTabs" Columns="4" Margin="-3,0,-3,16">
         <Button x:Name="Layer0" Content="Pad 1" Margin="3,0" Padding="5,10"/>
         <Button x:Name="Layer1" Content="Pad 2" Margin="3,0" Padding="5,10"/>
@@ -249,10 +256,10 @@ $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
@@ -491,6 +498,7 @@ function Select-Layout {
             $controls.AutoRead.IsChecked = $false
             $controls.TrackKnob.IsChecked = $false
             Open-Layout $dialog.FileName
+            Update-LockWarning 'offline'
             $controls.Connection.Text = 'Viewing an export · Read from pad reconnects'
         } catch { Show-LoadError $_.Exception.Message }
     }
@@ -552,10 +560,47 @@ function Stop-PadMonitor {
     if ($script:state.Timer) { $script:state.Timer.Stop(); $script:state.Timer = $null }
     if ($script:state.Monitor) { $script:state.Monitor.Dispose(); $script:state.Monitor = $null }
 }
+function Update-LockWarning([string]$Status) {
+    $previous = $script:state.LockState
+    $script:state.LockState = $Status
+    $controls.LockPanel.Visibility = if ($Status -in @('unlocked','offline')) { 'Collapsed' } else { 'Visible' }
+    $needsUnlock = $Status -in @('locked','unlocking')
+    $controls.LockHelp.Visibility = if ($needsUnlock) { 'Visible' } else { 'Collapsed' }
+    $controls.UnlockHelp.Visibility = if ($needsUnlock) { 'Visible' } else { 'Collapsed' }
+    switch ($Status) {
+        'locked' {
+            $controls.LockHeading.Text = 'Pad locked · knob tracking unavailable'
+            $controls.LockHelp.Text = 'Unlock in Vial, then close Vial. Manual layer selection still works.'
+        }
+        'unlocking' {
+            $controls.LockHeading.Text = 'Unlock in progress · finish in Vial'
+            $controls.LockHelp.Text = 'Hold the highlighted keys until the progress bar finishes, then close Vial.'
+        }
+        default { $controls.LockHeading.Text = 'Checking pad lock status…' }
+    }
+    # Switch events may have been missed while monitoring was locked.
+    if ($needsUnlock -and $previous -eq 'unlocked' -and $controls.TrackKnob.IsChecked) { Require-PadSync }
+}
+$controls.UnlockHelp.Add_Click({
+    $instructions = @'
+The pad must be unlocked for knob tracking. Manual selection still works while locked.
+
+1. Close this display, then open Vial and select your Pad Plus.
+2. Choose Security → Unlock (Ctrl+U in the desktop app).
+3. Hold both keys highlighted by Vial. For the supported Pad Plus firmware, these are the upper-left and lower-left of the six main buttons, not the knob.
+4. Keep holding until the progress bar finishes and the unlock dialog closes. Follow Vial's highlighted keys if they differ.
+5. Close Vial, leaving the pad plugged in. Do not choose Security → Lock.
+6. Reopen this display, select the layer shown on the OLED, then enable Follow knob presses. Expand compact view if needed.
+
+Unplugging, resetting, or losing USB power normally locks the pad again.
+'@
+    [void][Windows.MessageBox]::Show($window,$instructions,'Unlock your Pad Plus','OK','Information')
+})
 function Receive-PadNotices {
     if (-not $script:state.Monitor) { return }
     while ($null -ne ($notice = $script:state.Monitor.Next())) {
         switch ($notice.Kind) {
+            'lock' { Update-LockWarning $notice.Text }
             'snapshot' {
                 $candidate = Convert-PadSnapshot $notice.Data
                 $script:state.Mode = 'live'; $script:state.Refreshed = Get-Date
@@ -573,12 +618,14 @@ function Receive-PadNotices {
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#70DEC2')
             }
             'retry' {
+                Update-LockWarning 'unknown'
                 # A slow macro or a transient protocol error does not establish a USB disconnect.
                 $controls.Connection.Text = $notice.Text + ' Retrying automatically.'
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
                 if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { $controls.TrackingStatus.Text = 'Reader recovering · layer kept; sync only if knob presses were missed' }
             }
             'disconnected' {
+                Update-LockWarning 'unknown'
                 Require-PadSync
                 $controls.Connection.Text = $notice.Text + ' Previous labels retained.'
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
@@ -606,6 +653,7 @@ function Start-PadMonitor {
     try {
         Initialize-HidReader
         if (-not $script:state.Monitor) {
+            Update-LockWarning 'unknown'
             $script:state.Monitor = [TogKeyDisplay.Monitor]::new()
             $script:state.Timer = [Windows.Threading.DispatcherTimer]::new()
             $script:state.Timer.Interval = [TimeSpan]::FromMilliseconds(60)

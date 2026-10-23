@@ -18,6 +18,8 @@ No administrator access, firmware changes, export file, or third-party HID packa
 
 **The Pad Plus must be unlocked for “Follow knob presses” to work.** Vial protects physical-switch monitoring while the keyboard is locked. Reading saved button mappings and selecting a layer manually can still work while it is locked. TogKey Display checks the unlock status but does not unlock the pad itself.
 
+The display automatically checks the lock state while connected, even when knob tracking is off or the starting layer has not been selected. A **Pad locked · knob tracking unavailable** banner appears in both full and compact views. Click **How to unlock** for instructions in the GUI. The banner distinguishes unlocking in progress and disappears once an unlocked state is confirmed. A failed check is shown as an unknown/checking state, rather than assuming the pad is locked or unlocked.
+
 1. **Close TogKey Display** so only Vial communicates with the pad during unlocking.
 2. **Connect the Pad Plus by USB** and open the [Vial desktop application](https://get.vial.today/) or [Vial in a compatible browser](https://vial.rocks/). If the browser asks for a device, select the Pad Plus and allow the connection.
 3. **Select the Pad Plus** in Vial's device list. Confirm that its key layout appears.

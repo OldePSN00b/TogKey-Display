@@ -154,6 +154,11 @@ namespace TogKeyDisplay {
         public static byte[] Packet(params byte[] bytes) {
             byte[] p=new byte[32]; Array.Copy(bytes,p,bytes.Length); return p;
         }
+        public static string ReadLockState(Func<byte[],byte[]> query) {
+            var state=query(Packet(0xFE,5));
+            if(state==null || state.Length!=32 || state[0]>1 || state[1]>1) throw new IOException("Unexpected lock-status reply. Close Vial and retry.");
+            return state[1]==1 ? "unlocking" : state[0]==1 ? "unlocked" : "locked";
+        }
         static byte[] Via(Func<byte[],byte[]> query, params byte[] bytes) {
             byte[] r=query(Packet(bytes));
             if (r==null || r.Length!=32 || r[0]!=bytes[0]) throw new IOException("Unexpected VIA reply. Close other keyboard configurators and retry.");
@@ -243,6 +248,7 @@ namespace TogKeyDisplay {
                         hid.Waiting=()=>Post("busy","Waiting for pad · layer selection kept");
                         hid.Replied=()=>Post("responsive","Pad responding · layer selection kept");
                         Snapshot snapshot=null; bool? wasDown=null; bool? unlocked=null;
+                        string lockState=null;
                         int observedEpoch=-1;
                         DateTime nextUnlock=DateTime.MinValue;
                         while(!stop.IsCancellationRequested) {
@@ -256,18 +262,22 @@ namespace TogKeyDisplay {
                                 wasDown=null;
                                 if(TrackKnob) Post("tracking","Knob tracking · estimated; select a layer to sync");
                             }
+                            // Check independently of tracking/sync so a locked pad is visible at startup.
+                            if(DateTime.UtcNow>=nextUnlock) {
+                                string currentLockState=Reader.ReadLockState(hid.Query);
+                                bool ready=currentLockState=="unlocked";
+                                if(lockState!=currentLockState) {
+                                    lockState=currentLockState;
+                                    wasDown=null;
+                                    Post("lock",lockState);
+                                    Post("tracking",ready ? "Pad unlocked · select a layer if tracking is out of sync" : "Unlock the pad in Vial, then close Vial to track the knob");
+                                }
+                                unlocked=ready;
+                                nextUnlock=DateTime.UtcNow.AddSeconds(1);
+                            }
                             if(TrackKnob) {
                                 int epoch=Volatile.Read(ref TrackingEpoch);
                                 if(epoch!=observedEpoch) { wasDown=null; observedEpoch=epoch; }
-                                if(DateTime.UtcNow>=nextUnlock) {
-                                    var state=hid.Query(Reader.Packet(0xFE,5));
-                                    bool ready=state[0]==1 && state[1]==0;
-                                    if(unlocked!=ready) {
-                                        unlocked=ready; wasDown=null;
-                                        Post("tracking",ready ? "Knob tracking · estimated; select a layer to sync" : "Unlock the pad in Vial, then close Vial to track the knob");
-                                    }
-                                    nextUnlock=DateTime.UtcNow.AddSeconds(1);
-                                }
                                 if(unlocked==true) {
                                     var matrix=hid.Query(Reader.Packet(2,3));
                                     if(matrix[0]!=2 || matrix[1]!=3) throw new IOException("Unexpected switch reply. Close Vial and retry.");
@@ -275,7 +285,7 @@ namespace TogKeyDisplay {
                                     if(wasDown==false && down) notices.Enqueue(new Notice("press") { Epoch=epoch });
                                     wasDown=down;
                                 }
-                            } else { wasDown=null; unlocked=null; nextUnlock=DateTime.MinValue; }
+                            } else { wasDown=null; }
                             Wait(TrackKnob ? 40 : 100);
                         }
                     }
