@@ -347,6 +347,5 @@ namespace TogKeyDisplay {
             }
         }
         public void Dispose() { stop.Cancel(); }
-        public bool WaitForStop(int milliseconds) { return worker.Wait(milliseconds); }
     }
 }

@@ -31,7 +31,7 @@ The display automatically checks the lock state while connected, even when knob 
 
 Unplugging the pad, resetting it, or losing USB power normally locks it again. Repeat these steps after reconnecting if the display asks you to unlock. Closing Vial alone does not relock the pad. Vial's unlock procedure and relocking behavior are described in its [security documentation](https://get.vial.today/docs/security.html).
 
-If the display still asks you to unlock, return to Vial and complete the countdown again, then close Vial and click **Read from pad**. Unlocking and choosing the current layer are separate steps: unlocking permits switch monitoring; selecting **Pad 1–4** synchronizes the estimated layer.
+If the display still asks you to unlock, close the display, reopen Vial and complete the countdown again, then close Vial and restart the display. Unlocking and choosing the current layer are separate steps: unlocking permits switch monitoring; selecting **Pad 1–4** synchronizes the estimated layer.
 
 ## Features
 
@@ -46,20 +46,16 @@ After editing in Vial, close Vial so the display can read the saved changes with
 
 ### Editing mappings or macros in Vial
 
-The pad's Raw HID protocol does not identify which application requested a reply. Vial and the display must take turns using that interface. This release opens its live session exclusively, filters recognizable stale replies, and shows an in-use message if another application already has the pad open.
+**Close TogKey Display completely before opening Vial.** This is the recommended workflow based on testing with the pad. Minimizing the window or turning off **Auto-read mappings** is not sufficient: lock checks and knob monitoring can still use the connection.
 
-1. In the display, uncheck **Compact** if necessary to reveal the controls.
-2. Click **Edit in Vial**. The display stops its reader, waits for the connection to be released, and **launches the Vial desktop application automatically**. Turning off **Auto-read mappings** alone is not sufficient, because lock checks and knob monitoring can still use the connection.
-3. Make your mapping or macro changes in Vial. The display stays paused while you edit.
+1. Close TogKey Display using its **×** button.
+2. Open the Vial desktop application or browser version manually, select the Pad Plus, and unlock it if needed.
+3. Make your mapping or macro changes. Close and reopen Vial to confirm that the new configuration persisted before relying on it.
 4. Close Vial, including its browser tab, without unplugging the pad.
-5. Click **Resume display** (or **Read from pad**). The display reconnects and loads the saved changes.
-6. Select **Pad 1–4** to match the OLED again, since knob presses during the pause were not observed. Your chosen auto-read and tracking options are retained.
+5. Start TogKey Display again. It reads the saved mappings directly from the pad.
+6. Select **Pad 1–4** to match the OLED, then enable **Follow knob presses** if desired. Your saved custom labels are retained.
 
-If you see **Pad is in use**, close Vial and any other running copies of the display, then click **Read from pad**. Macro editing does not itself change the firmware's VIA protocol version. Closing the display before opening Vial is also a valid alternative to the pause button.
-
-The launcher looks for Vial on the system PATH, in standard installation locations, and beside the display script. If it cannot find Vial, a file picker asks you to locate the application's `.exe`. Install the [Vial desktop application](https://get.vial.today/) first if needed. Your selected or detected executable location is remembered in **TogKey settings.json** beside the script. Keep that file when upgrading; `.gitignore` excludes it from sharing. If you use browser-based Vial instead, cancel the file picker and open the browser version manually while the display is paused.
-
-The display does not close Vial for you or resume automatically while Vial is open. Close Vial when done, then click **Resume display**. If the pad connection is still closing or launching fails, the display remains paused and shows a status message.
+The pad's Raw HID protocol does not identify which application requested a reply. The display opens its live session exclusively, filters recognizable stale replies, and shows **Pad is in use** if another application already has the pad open. Close Vial and other display copies before retrying. Macro editing does not itself change the firmware's VIA protocol version.
 
 ## Label editing
 
@@ -71,7 +67,7 @@ Custom button and knob labels belong to a position on a particular layer. They s
 
 Names are saved in **TogKey labels.json** beside the script. Keep this file when upgrading. Do not include it in a public release unless you intend to share those names; `.gitignore` excludes it. No label file or personal export is included in this package.
 
-Local application settings, including the Vial executable path, are stored separately in **TogKey settings.json**. This file is also excluded from Git and is not bundled in releases.
+Older releases may have created **TogKey settings.json** for the Vial launcher. This version does not read or update that legacy file; it is still excluded from Git.
 
 ## Active layer and knob tracking
 

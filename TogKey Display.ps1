@@ -6,7 +6,6 @@ param(
     [switch]$ReadPadOnly,
     [switch]$Compact,
     [string]$LabelsPath,
-    [string]$SettingsPath,
     [string]$PreviewPath
 )
 
@@ -234,10 +233,9 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
       </Border>
       <TextBlock x:Name="LayerHelp" Text="Select the matching layer above, or enable knob tracking below. Layer selection here changes only this display." Foreground="#94A4BA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
       <Grid x:Name="ReadSettings" Margin="0,0,0,10">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <Button x:Name="ReadPad" Content="Read from pad" HorizontalAlignment="Left" Background="#29493F" Foreground="#A5F1D9" FontSize="11" Padding="10,8"/>
-        <Button x:Name="EditVial" Grid.Column="1" Content="Edit in Vial" HorizontalAlignment="Center" FontSize="11" Padding="9,8" ToolTip="Pause the display, release its connection, and launch Vial"/>
-        <CheckBox x:Name="AutoRead" Grid.Column="2" Content="Auto-read mappings" IsChecked="True" Foreground="#B9C5D6" VerticalAlignment="Center" FontSize="11" ToolTip="Read saved mappings every 8 seconds"/>
+        <CheckBox x:Name="AutoRead" Grid.Column="1" Content="Auto-read mappings" IsChecked="True" Foreground="#B9C5D6" VerticalAlignment="Center" FontSize="11" ToolTip="Read saved mappings every 8 seconds"/>
       </Grid>
       <TextBlock x:Name="Connection" Text="Ready to read the pad" Foreground="#94A4BA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox x:Name="TrackKnob" Content="Follow knob presses (estimated layer)" Foreground="#B9C5D6" FontSize="11" Margin="0,0,0,5"/>
@@ -258,19 +256,11 @@ $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','EditVial')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Editing = $false }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
-$script:settingsPath = if ($SettingsPath) { [IO.Path]::GetFullPath($SettingsPath) } else { Join-Path $PSScriptRoot 'TogKey settings.json' }
-$script:vialExecutable = ''
-if (Test-Path -LiteralPath $script:settingsPath) {
-    try {
-        $savedSettings = Get-Content -LiteralPath $script:settingsPath -Raw | ConvertFrom-Json -Depth 8
-        if ($savedSettings.version -eq 1 -and $savedSettings.vialExecutable -is [string]) { $script:vialExecutable = $savedSettings.vialExecutable }
-    } catch { } # A missing/invalid location can be selected again when launching Vial.
-}
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
     try {
@@ -570,74 +560,6 @@ function Stop-PadMonitor {
     if ($script:state.Timer) { $script:state.Timer.Stop(); $script:state.Timer = $null }
     if ($script:state.Monitor) { $script:state.Monitor.Dispose(); $script:state.Monitor = $null }
 }
-function Test-VialExecutable([string]$Path) {
-    return $Path -and [IO.Path]::IsPathFullyQualified($Path) -and [IO.Path]::GetExtension($Path) -ieq '.exe' -and (Test-Path -LiteralPath $Path -PathType Leaf)
-}
-function Find-VialExecutable {
-    if (Test-VialExecutable $script:vialExecutable) { return $script:vialExecutable }
-    $command = Get-Command Vial.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($command -and (Test-VialExecutable $command.Source)) { return $command.Source }
-    $candidates = [Collections.Generic.List[string]]::new()
-    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
-        if ($base) { $candidates.Add((Join-Path $base 'Vial\Vial.exe')) }
-    }
-    if ($env:LOCALAPPDATA) {
-        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Vial\Vial.exe'))
-        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Vial\Vial.exe'))
-    }
-    $candidates.Add((Join-Path $PSScriptRoot 'Vial.exe'))
-    foreach ($candidate in $candidates) { if (Test-VialExecutable $candidate) { return $candidate } }
-    return $null
-}
-function Save-VialExecutable([string]$Path) {
-    if (-not (Test-VialExecutable $Path)) { throw 'Choose an existing Vial .exe file.' }
-    $pathToSave = [IO.Path]::GetFullPath($Path)
-    $json = @{ version=1; vialExecutable=$pathToSave } | ConvertTo-Json
-    $temporaryPath = $script:settingsPath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
-    try {
-        [IO.File]::WriteAllText($temporaryPath,$json,[Text.UTF8Encoding]::new($false))
-        [IO.File]::Move($temporaryPath,$script:settingsPath,$true)
-    } finally { if ([IO.File]::Exists($temporaryPath)) { [IO.File]::Delete($temporaryPath) } }
-    $script:vialExecutable = $pathToSave
-}
-function Invoke-VialExecutable([string]$Path) {
-    # A single explicit executable path, with no shell-built command or macro arguments.
-    Start-Process -FilePath $Path -WorkingDirectory ([IO.Path]::GetDirectoryName($Path)) -WindowStyle Normal | Out-Null
-}
-function Start-VialEditor {
-    if (-not $script:state.Editing -or $script:state.Monitor) { throw 'Pause the display and release the pad before launching Vial.' }
-    $path = Find-VialExecutable
-    if (-not $path) {
-        $picker = [Microsoft.Win32.OpenFileDialog]::new()
-        $picker.Title = 'Locate the Vial application (Vial.exe)'
-        $picker.Filter = 'Windows applications (*.exe)|*.exe'
-        if (-not $picker.ShowDialog($window)) {
-            $controls.Connection.Text = 'Display paused · no app selected; open Vial manually or resume the display'
-            return
-        }
-        $path = $picker.FileName
-    }
-    if (-not (Test-VialExecutable $path)) { throw 'The Vial application could not be found. Choose an existing .exe file.' }
-    $remembered = $true
-    try { Save-VialExecutable $path } catch { $remembered = $false }
-    Invoke-VialExecutable $path
-    $controls.Connection.Text = 'Vial launched · close Vial when done, then click Resume display'
-    if (-not $remembered) { $controls.Connection.Text += ' (app location could not be saved)' }
-}
-function Pause-ForVial([switch]$Launch) {
-    $previousMonitor=$script:state.Monitor
-    Stop-PadMonitor
-    $released=-not $previousMonitor -or $previousMonitor.WaitForStop(1000)
-    $script:state.Editing=$true
-    Require-PadSync
-    Update-LockWarning 'offline'
-    $controls.EditVial.Content='Resume display'
-    $controls.Connection.Text=if($released) { 'Display paused · open Vial, make changes, then close Vial and resume' } else { 'Display paused · connection is still closing; wait before opening Vial' }
-    if ($Launch -and $released) {
-        try { Start-VialEditor }
-        catch { $controls.Connection.Text = 'Display paused · could not launch Vial: ' + $_.Exception.Message }
-    }
-}
 function Update-LockWarning([string]$Status) {
     $previous = $script:state.LockState
     $script:state.LockState = $Status
@@ -728,7 +650,6 @@ function Receive-PadNotices {
     }
 }
 function Start-PadMonitor {
-    if($script:state.Editing) { return }
     try {
         Initialize-HidReader
         if (-not $script:state.Monitor) {
@@ -750,14 +671,7 @@ function Start-PadMonitor {
         $script:state.Monitor.Refresh = $true
     } catch { $controls.Connection.Text = 'Reader could not start: ' + $_.Exception.Message }
 }
-$controls.ReadPad.Add_Click({ $script:state.Editing=$false; $controls.EditVial.Content='Edit in Vial'; Start-PadMonitor })
-$controls.EditVial.Add_Click({
-    if($script:state.Editing) {
-        $script:state.Editing=$false
-        $controls.EditVial.Content='Edit in Vial'
-        Start-PadMonitor
-    } else { Pause-ForVial -Launch }
-})
+$controls.ReadPad.Add_Click({ Start-PadMonitor })
 $controls.AutoRead.Add_Checked({ Start-PadMonitor })
 $controls.AutoRead.Add_Unchecked({
     if ($script:state.Monitor) { $script:state.Monitor.AutoRead = $false }
