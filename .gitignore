@@ -1,6 +1,7 @@
 # Local display names and exports
 TogKey labels.json
 TogKey settings.json
+TogKey preferences.json
 *.vil
 *.tmp
 *.log

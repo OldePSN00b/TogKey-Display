@@ -42,6 +42,8 @@ If the display still asks you to unlock, click **Release pad**, reopen Vial and 
 - **Compact** view, approximately 300 × 340 pixels.
 - **Strip view**: a single row of the six button labels (about 760 × 45 pixels) to park along the top of the screen. See [Strip view](#strip-view).
 - Drag the header to move the display; **Pinned** keeps it above other windows.
+- Remembers the view, window positions, pin, and reading options between launches. See [Preferences](#preferences).
+- Keyboard shortcuts, including **Ctrl + Alt + K** to show or minimize the display from anywhere. See [Keyboard shortcuts](#keyboard-shortcuts).
 - Optional `.vil` import with **Open .vil**.
 
 After editing in Vial, close Vial so the display can read the saved changes without competing HID traffic. A slow or failed read retains the previous labels and shows a connection message. The reader waits up to six seconds per request to accommodate macro execution, then retries automatically without clearing the selected layer. HID buffering is disabled so each transfer remains a single report.
@@ -70,6 +72,30 @@ Click **Strip view** (beside **Compact**) to collapse the display to one slim ro
 
 Live reads and knob tracking keep running in strip view.
 
+## Keyboard shortcuts
+
+Click the display once so it has focus, then:
+
+| Key | Action |
+| --- | --- |
+| **1**–**4** | Select pad layer (also resyncs knob tracking) |
+| **←** / **→** | Previous / next layer |
+| **F2** | Rename the button, knob action, or layer tab under the mouse pointer (otherwise the current layer's name) |
+| **F5** | Read from pad / reconnect |
+| **R** | Release pad for Vial / reconnect |
+| **S** | Strip view on / off |
+| **C** | Compact view on / off |
+| **P** | Pin on top on / off |
+| **F1** | Show this list |
+
+From anywhere in Windows, **Ctrl + Alt + K** restores and focuses the display, or minimizes it if it is showing. If another application already uses that combination, the display says so and the other shortcuts still work.
+
+## Preferences
+
+The display saves its view (full, compact, or strip), the full/compact and strip window positions, **Pinned**, **Auto-read mappings**, and **Follow knob presses** when it closes, and restores them at the next launch. Knob tracking still waits for you to select the current layer. A saved position on a monitor that is no longer connected is ignored. The `-Compact` and `-Strip` command-line options override the saved view.
+
+Preferences are saved in **TogKey preferences.json** beside the script; `.gitignore` excludes it. Delete the file to return to defaults.
+
 ## Label editing
 
 Right-click a button tile, layer tab, or knob action to edit its display name. This also works in compact view. **Use automatic** removes an override.
@@ -80,7 +106,7 @@ Custom button and knob labels belong to a position on a particular layer. They s
 
 Names are saved in **TogKey labels.json** beside the script. Keep this file when upgrading. Do not include it in a public release unless you intend to share those names; `.gitignore` excludes it. No label file or personal export is included in this package.
 
-Older releases may have created **TogKey settings.json** for the Vial launcher. This version does not read or update that legacy file; it is still excluded from Git.
+Older releases may have created **TogKey settings.json** for the Vial launcher. This version does not read or update that legacy file (display preferences use **TogKey preferences.json** instead); it is still excluded from Git.
 
 ## Active layer and knob tracking
 
@@ -126,6 +152,7 @@ pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -Compact
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -Strip
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -VialPath 'C:\Path\To\layout.vil'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -LabelsPath 'C:\Path\To\labels.json'
+pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -SettingsPath 'C:\Path\To\preferences.json'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -ReadPadOnly
 ```
 
