@@ -7,6 +7,7 @@ param(
     [switch]$Compact,
     [switch]$Strip,
     [string]$LabelsPath,
+    [string]$SettingsPath,
     [string]$PreviewPath
 )
 
@@ -163,6 +164,32 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     throw 'Start this display with pwsh -STA, or use Start TogKey Display.cmd.'
 }
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+if (-not ('TogKeyDisplay.GlobalHotkey' -as [type])) {
+    # Filtering WM_HOTKEY in C# avoids running PowerShell for every window message.
+    Add-Type -ReferencedAssemblies ([Windows.Interop.HwndSource].Assembly.Location), ([Windows.Threading.Dispatcher].Assembly.Location) -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
+namespace TogKeyDisplay {
+    public sealed class GlobalHotkey : IDisposable {
+        [DllImport("user32.dll", SetLastError=true)] static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
+        [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr window, int id);
+        const int Id = 0x544B;
+        readonly HwndSource source; readonly Action pressed; readonly HwndSourceHook hook;
+        public GlobalHotkey(IntPtr window, uint modifiers, uint key, Action onPressed) {
+            source = HwndSource.FromHwnd(window); pressed = onPressed; hook = Hook;
+            if (!RegisterHotKey(window, Id, modifiers | 0x4000, key)) throw new InvalidOperationException("Hotkey registration failed (Win32 error " + Marshal.GetLastWin32Error() + ").");
+            source.AddHook(hook);
+        }
+        IntPtr Hook(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled) {
+            if (message == 0x0312 && wParam.ToInt32() == Id) { handled = true; if (pressed != null) pressed(); }
+            return IntPtr.Zero;
+        }
+        public void Dispose() { source.RemoveHook(hook); UnregisterHotKey(source.Handle, Id); }
+    }
+}
+'@
+}
 
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -234,7 +261,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
           <TextBlock x:Name="KnobPress" Text="Press: Cycle layers" FontSize="12" Foreground="#70DEC2" Margin="0,4,0,0"/>
         </StackPanel>
       </Border>
-      <TextBlock x:Name="LayerHelp" Text="Select the matching layer above, or enable knob tracking below. Layer selection here changes only this display." Foreground="#94A4BA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+      <TextBlock x:Name="LayerHelp" Text="Select the matching layer above, or enable knob tracking below. Layer selection here changes only this display. Press F1 for keyboard shortcuts." Foreground="#94A4BA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
       <Grid x:Name="ReadSettings" Margin="0,0,0,10">
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <Button x:Name="ReadPad" Content="Read from pad" HorizontalAlignment="Left" Background="#29493F" Foreground="#A5F1D9" FontSize="11" Padding="10,8"/>
@@ -293,20 +320,23 @@ function Get-DisplayLabel([string]$Id, [string]$Automatic) {
     if ($script:displayLabels.ContainsKey($Id)) { return $script:displayLabels[$Id] }
     return $Automatic
 }
+function Write-FileAtomically([string]$Path, [string]$Text) {
+    # Write beside the target, then replace it, so a crash never leaves a half-written file.
+    $temporaryPath = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temporaryPath, $Text, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporaryPath, $Path, $true)
+    } finally {
+        if ([IO.File]::Exists($temporaryPath)) { [IO.File]::Delete($temporaryPath) }
+    }
+}
 function Save-DisplayLabel([string]$Id, [string]$Text) {
     if ($Id -notmatch '^(button:[0-3]:[0-5]|layer:[0-3]|knob:[0-3]:(turn|press))$') { throw 'Invalid label position.' }
     $candidate = $script:displayLabels.Clone()
     $clean = ($Text -replace '\s+', ' ').Trim()
     if ($clean.Length -gt 64) { throw 'Labels must be 64 characters or fewer.' }
     if ([string]::IsNullOrWhiteSpace($clean)) { $candidate.Remove($Id) } else { $candidate[$Id] = $clean }
-    $json = @{ version=1; labels=$candidate } | ConvertTo-Json -Depth 8
-    $temporaryPath = $script:labelPath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
-    try {
-        [IO.File]::WriteAllText($temporaryPath, $json, [Text.UTF8Encoding]::new($false))
-        [IO.File]::Move($temporaryPath, $script:labelPath, $true)
-    } finally {
-        if ([IO.File]::Exists($temporaryPath)) { [IO.File]::Delete($temporaryPath) }
-    }
+    Write-FileAtomically $script:labelPath (@{ version=1; labels=$candidate } | ConvertTo-Json -Depth 8)
     $script:displayLabels = $candidate
     Update-Display
 }
@@ -546,22 +576,29 @@ foreach ($n in 0..3) {
     $controls["Layer$n"].Add_Click({ param($sender, $eventArgs) Confirm-PadLayer ([int]$sender.Tag) })
     $controls["Layer$n"].Add_MouseRightButtonUp({
         param($sender, $eventArgs)
-        $number = [int]$sender.Tag
-        $automatic = [string]$sender.DataContext
-        Edit-DisplayLabel "layer:$number" $automatic "Pad layer $($number+1) name (Vial $number)"
+        Edit-LayerName ([int]$sender.Tag)
         $eventArgs.Handled = $true
     })
+}
+function Edit-LayerName([int]$Number) {
+    Edit-DisplayLabel "layer:$Number" '' "Pad layer $($Number+1) name (Vial $Number)"
+}
+function Edit-ButtonLabel([int]$Position) {
+    $layer = $script:state.Layer
+    $row = 1 + [int][Math]::Floor($Position / 3)
+    $column = $Position % 3
+    $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
+    Edit-DisplayLabel "button:${layer}:$Position" $automatic "Pad layer $($layer+1) · button $($Position+1)"
+}
+function Edit-KnobLabel([string]$Action) {
+    $control = if ($Action -eq 'turn') { $controls.KnobRotate } else { $controls.KnobPress }
+    Edit-DisplayLabel "knob:$($script:state.Layer):$Action" ([string]$control.Tag) $(if ($Action -eq 'turn') { 'Knob turn label' } else { 'Knob press label' })
 }
 $renameButton = {
     param($sender, $eventArgs)
     # Unsynced strip tiles show placeholders; let the strip menu open instead.
     if (-not $script:state.Synced) { return }
-    $position = [int]$sender.Tag
-    $layer = $script:state.Layer
-    $row = 1 + [int][Math]::Floor($position / 3)
-    $column = $position % 3
-    $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
-    Edit-DisplayLabel "button:${layer}:$position" $automatic "Pad layer $($layer+1) · button $($position+1)"
+    Edit-ButtonLabel ([int]$sender.Tag)
     $eventArgs.Handled = $true
 }
 foreach ($i in 0..5) {
@@ -570,16 +607,8 @@ foreach ($i in 0..5) {
         $tile.Border.Add_MouseRightButtonUp($renameButton)
     }
 }
-$controls.KnobRotate.Add_MouseRightButtonUp({
-    param($sender,$eventArgs)
-    Edit-DisplayLabel "knob:$($script:state.Layer):turn" ([string]$sender.Tag) 'Knob turn label'
-    $eventArgs.Handled = $true
-})
-$controls.KnobPress.Add_MouseRightButtonUp({
-    param($sender,$eventArgs)
-    Edit-DisplayLabel "knob:$($script:state.Layer):press" ([string]$sender.Tag) 'Knob press label'
-    $eventArgs.Handled = $true
-})
+$controls.KnobRotate.Add_MouseRightButtonUp({ param($sender,$eventArgs) Edit-KnobLabel 'turn'; $eventArgs.Handled = $true })
+$controls.KnobPress.Add_MouseRightButtonUp({ param($sender,$eventArgs) Edit-KnobLabel 'press'; $eventArgs.Handled = $true })
 $controls.Close.Add_Click({ $window.Close() })
 $window.Add_Closed({ Stop-PadMonitor })
 $controls.Minimize.Add_Click({ $window.WindowState = 'Minimized' })
@@ -915,8 +944,133 @@ function Set-CompactDisplay([bool]$Enabled) {
 }
 $controls.Compact.Add_Checked({ Set-CompactDisplay $true })
 $controls.Compact.Add_Unchecked({ Set-CompactDisplay $false })
-if ($Compact) { $controls.Compact.IsChecked = $true }
-if ($Strip) { Set-StripView $true }
+
+# ---- Saved preferences (view, positions, pin, reading options) ----
+$script:settingsPath = if ($SettingsPath) { [IO.Path]::GetFullPath($SettingsPath) } else { Join-Path $PSScriptRoot 'TogKey preferences.json' }
+function Read-DisplaySettings {
+    if (-not (Test-Path -LiteralPath $script:settingsPath)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $script:settingsPath -Raw | ConvertFrom-Json -AsHashtable -Depth 4
+        if ($raw.version -ne 1) { throw 'Unexpected preferences format.' }
+        $settings = @{}
+        foreach ($name in @('compact','strip','pinned','autoRead','trackKnob')) {
+            if ($raw[$name] -is [bool]) { $settings[$name] = $raw[$name] }
+        }
+        foreach ($name in @('normalPosition','stripPosition')) {
+            $value = @($raw[$name])
+            if ($value.Count -eq 2 -and ($value | Where-Object { ($_ -is [double] -or $_ -is [long] -or $_ -is [int]) -and [double]::IsFinite($_) }).Count -eq 2) {
+                $settings[$name] = @([double]$value[0], [double]$value[1])
+            }
+        }
+        return $settings
+    } catch {
+        $controls.Connection.Text = 'Preferences file could not be read; defaults used.'
+        return $null
+    }
+}
+function Test-PositionVisible($Position) {
+    # Discard positions from a monitor that is no longer attached; keep the title area reachable.
+    if (-not $Position) { return $false }
+    $left = [Windows.SystemParameters]::VirtualScreenLeft; $top = [Windows.SystemParameters]::VirtualScreenTop
+    $right = $left + [Windows.SystemParameters]::VirtualScreenWidth; $bottom = $top + [Windows.SystemParameters]::VirtualScreenHeight
+    return ($Position[0] + 80) -ge $left -and ($Position[0] + 80) -le $right -and $Position[1] -ge $top -and ($Position[1] + 30) -le $bottom
+}
+function Save-DisplaySettings {
+    $bounds = if ($window.WindowState -eq 'Normal') { [Windows.Rect]::new($window.Left, $window.Top, 1, 1) } else { $window.RestoreBounds }
+    $current = @([Math]::Round($bounds.Left), [Math]::Round($bounds.Top))
+    if ($script:state.StripOn) { $script:state.StripPos = $current } else { $script:state.NormalPos = $current }
+    $settings = [ordered]@{
+        version = 1
+        compact = [bool]$controls.Compact.IsChecked
+        strip = [bool]$script:state.StripOn
+        pinned = [bool]$window.Topmost
+        autoRead = [bool]$controls.AutoRead.IsChecked
+        trackKnob = [bool]$controls.TrackKnob.IsChecked
+        normalPosition = $script:state.NormalPos
+        stripPosition = $script:state.StripPos
+    }
+    try { Write-FileAtomically $script:settingsPath ($settings | ConvertTo-Json -Depth 4) } catch { }
+}
+$script:savedSettings = Read-DisplaySettings
+if ($script:savedSettings) {
+    if ($script:savedSettings.ContainsKey('pinned') -and -not $script:savedSettings.pinned) { Switch-Pinned }
+    if ($script:savedSettings.ContainsKey('autoRead')) { $controls.AutoRead.IsChecked = $script:savedSettings.autoRead }
+    if (Test-PositionVisible $script:savedSettings.normalPosition) { $script:state.NormalPos = $script:savedSettings.normalPosition }
+    if (Test-PositionVisible $script:savedSettings.stripPosition) { $script:state.StripPos = $script:savedSettings.stripPosition }
+}
+# Command-line view switches override the saved view.
+$controls.Compact.IsChecked = $Compact -or ($script:savedSettings -and $script:savedSettings.compact -and -not $Strip)
+if ($Strip -or ($script:savedSettings -and $script:savedSettings.strip -and -not $Compact)) { Set-StripView $true }
+$startPosition = if ($script:state.StripOn) { $script:state.StripPos } else { $script:state.NormalPos }
+if ($startPosition) {
+    $window.WindowStartupLocation = 'Manual'
+    $window.Left, $window.Top = $startPosition
+}
+$window.Add_Closing({ if (-not $PreviewPath) { Save-DisplaySettings } })
+
+# ---- Keyboard shortcuts ----
+$script:shortcutHelp = @'
+While the display is focused:
+  1 – 4            Select pad layer (also resyncs knob tracking)
+  ← / →            Previous / next layer
+  F2               Rename the button, knob action, or layer tab under the mouse pointer
+                   (otherwise the current layer's name)
+  F5               Read from pad / reconnect
+  R                Release pad for Vial / reconnect
+  S                Strip view on / off
+  C                Compact view on / off
+  P                Pin on top on / off
+  F1               This list
+
+Anywhere in Windows:
+  Ctrl + Alt + K   Show / minimize the display
+'@
+function Invoke-RenameShortcut {
+    foreach ($i in 0..5) {
+        if ($script:tileControls[$i].Border.IsMouseOver -or $script:stripTiles[$i].Border.IsMouseOver) {
+            if ($script:state.Synced) { Edit-ButtonLabel $i }
+            return
+        }
+    }
+    if ($script:state.Synced -and $controls.KnobRotate.IsMouseOver) { Edit-KnobLabel 'turn'; return }
+    if ($script:state.Synced -and $controls.KnobPress.IsMouseOver) { Edit-KnobLabel 'press'; return }
+    foreach ($n in 0..3) { if ($controls["Layer$n"].IsMouseOver) { Edit-LayerName $n; return } }
+    if ($script:state.Synced) { Edit-LayerName $script:state.Layer }
+}
+$window.Add_PreviewKeyDown({
+    param($sender, $eventArgs)
+    # Letter shortcuts only without modifiers, so system shortcuts (Alt+F4 and others) still work.
+    if ([Windows.Input.Keyboard]::Modifiers -ne [Windows.Input.ModifierKeys]::None) { return }
+    $key = $eventArgs.Key
+    $handled = $true
+    switch -Regex ([string]$key) {
+        '^(D|NumPad)([1-4])$' { Confirm-PadLayer ([int]$Matches[2] - 1); break }
+        '^Right$' { Confirm-PadLayer $(if ($script:state.Synced) { ($script:state.Layer + 1) % 4 } else { 0 }); break }
+        '^Left$' { Confirm-PadLayer $(if ($script:state.Synced) { ($script:state.Layer + 3) % 4 } else { 3 }); break }
+        '^F2$' { Invoke-RenameShortcut; break }
+        '^F5$' { Start-PadMonitor -Resume; break }
+        '^R$' { if ($script:state.Monitor) { Disconnect-Pad } else { Start-PadMonitor -Resume }; break }
+        '^S$' { if ($script:state.StripOn) { Show-NormalView ([bool]$controls.Compact.IsChecked) } else { Set-StripView $true }; break }
+        '^C$' { if ($script:state.StripOn) { Show-NormalView $true } else { $controls.Compact.IsChecked = -not $controls.Compact.IsChecked }; break }
+        '^P$' { Switch-Pinned; break }
+        '^F1$' { [void][Windows.MessageBox]::Show($window, $script:shortcutHelp, 'TogKey Display shortcuts', 'OK', 'Information'); break }
+        default { $handled = $false }
+    }
+    $eventArgs.Handled = $handled
+})
+$window.Add_SourceInitialized({
+    try {
+        $handle = [Windows.Interop.WindowInteropHelper]::new($window).Handle
+        # Ctrl+Alt+K: restore and focus the display, or minimize it if it is already showing.
+        $script:hotkey = [TogKeyDisplay.GlobalHotkey]::new($handle, 3, 0x4B, [Action]{
+            if ($window.WindowState -eq 'Minimized') {
+                $window.WindowState = 'Normal'
+                [void]$window.Activate()
+            } else { $window.WindowState = 'Minimized' }
+        })
+    } catch { $controls.Connection.Text = 'Ctrl+Alt+K is in use by another app; the show/hide shortcut is unavailable.' }
+})
+$window.Add_Closed({ if ($script:hotkey) { $script:hotkey.Dispose(); $script:hotkey = $null } })
 $binding = [Windows.Data.Binding]::new('Text')
 $binding.Source = $controls.Connection
 [void]$controls.Connection.SetBinding([Windows.FrameworkElement]::ToolTipProperty,$binding)
@@ -950,5 +1104,7 @@ if ($PreviewPath) {
     try { $encoder.Save($stream) } finally { $stream.Dispose() }
     return
 }
+# Applied after mappings load: the TrackKnob handler redraws the display and starts the reader.
+if ($script:savedSettings -and $script:savedSettings.trackKnob) { $controls.TrackKnob.IsChecked = $true }
 Start-PadMonitor
 [void]$window.ShowDialog()
