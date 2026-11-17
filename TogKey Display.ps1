@@ -8,13 +8,16 @@ param(
     [switch]$Strip,
     [string]$LabelsPath,
     [string]$SettingsPath,
-    [string]$PreviewPath
+    [string]$PreviewPath,
+    [switch]$Version
 )
 
 $ErrorActionPreference = 'Stop'
 
 # Keycode naming, .vil reading and the compiled-type cache live in a module so tests can load them.
 Import-Module (Join-Path $PSScriptRoot 'TogKey Core.psm1') -Force
+
+if ($Version) { "TogKey Display $(Get-TogKeyVersion)"; return }
 
 if ($ReadPadOnly) {
     Initialize-HidReader
@@ -38,7 +41,7 @@ if (-not $IsWindows) { throw 'This display requires Windows and PowerShell 7.' }
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     throw 'Start this display with pwsh -STA, or use Start TogKey Display.cmd.'
 }
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 # Filtering WM_HOTKEY in C# avoids running PowerShell for every window message.
 $hotkeySource = @'
 using System;
@@ -60,6 +63,10 @@ namespace TogKeyDisplay {
             return IntPtr.Zero;
         }
         public void Dispose() { source.RemoveHook(hook); UnregisterHotKey(source.Handle, Id); }
+    }
+    public static class NativeIcon {
+        // Icons built from Bitmap.GetHicon() are not freed by the garbage collector.
+        [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
     }
 }
 '@
@@ -98,7 +105,10 @@ Import-CompiledSource -TypeName 'TogKeyDisplay.GlobalHotkey' -CacheName 'TogKeyH
       <Grid x:Name="DragArea" Background="Transparent" Margin="0,0,0,18">
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock Text="TOGKEY" FontSize="12" FontWeight="Bold" Foreground="#70DEC2"/>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="TOGKEY" FontSize="12" FontWeight="Bold" Foreground="#70DEC2"/>
+            <TextBlock x:Name="AppVersion" FontSize="10" Foreground="#71839B" Margin="6,0,0,0" VerticalAlignment="Bottom"/>
+          </StackPanel>
           <TextBlock x:Name="Subtitle" Text="Your pad, at a glance" FontSize="18" FontWeight="SemiBold" Margin="0,3,0,0"/>
         </StackPanel>
         <Button x:Name="ReleasePad" Grid.Column="1" Content="Release pad" FontSize="11" Padding="8,6" Margin="0,0,5,0" VerticalAlignment="Top" ToolTip="Disconnect from the pad so Vial can use it, without closing this display"/>
@@ -173,10 +183,10 @@ $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','ReleasePad','ViewRow','StripView','Strip','StripLayer','StripTiles','StripExpand')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','ReleasePad','ViewRow','StripView','Strip','StripLayer','StripTiles','StripExpand','AppVersion')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Released = $false; StripOn = $false; StripPos = $null; NormalPos = $null }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Released = $false; StripOn = $false; StripPos = $null; NormalPos = $null; MinimizeToTray = $true }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
@@ -287,6 +297,7 @@ function Edit-DisplayLabel([string]$Id, [string]$Automatic, [string]$Description
     [void]$dialog.ShowDialog()
 }
 $controls.Compact.ToolTip = 'Shrink the display. Right-click a button, layer tab, or knob label to rename it.'
+$controls.AppVersion.Text = 'v' + (Get-TogKeyVersion)
 $script:tileControls = @()
 foreach ($i in 0..5) {
     $border = [Windows.Controls.Border]::new()
@@ -507,6 +518,7 @@ function Update-StripBadge {
     $controls.StripLayer.Content = if ($script:state.Synced) { [string]($script:state.Layer + 1) } else { '?' }
     $controls.StripLayer.Background = [Windows.Media.BrushConverter]::new().ConvertFromString($(if ($attention) { '#EFCB85' } else { '#70DEC2' }))
     $controls.StripLayer.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#10231F')
+    if ($script:tray) { Update-TrayIcon ([string]$controls.StripLayer.Content) $attention }
 }
 function Move-StripToTop {
     # Top-center of the monitor the window is on, in WPF units (handles display scaling).
@@ -824,7 +836,7 @@ function Read-DisplaySettings {
         $raw = Get-Content -LiteralPath $script:settingsPath -Raw | ConvertFrom-Json -AsHashtable -Depth 4
         if ($raw.version -ne 1) { throw 'Unexpected preferences format.' }
         $settings = @{}
-        foreach ($name in @('compact','strip','pinned','autoRead','trackKnob')) {
+        foreach ($name in @('compact','strip','pinned','autoRead','trackKnob','minimizeToTray')) {
             if ($raw[$name] -is [bool]) { $settings[$name] = $raw[$name] }
         }
         foreach ($name in @('normalPosition','stripPosition')) {
@@ -857,6 +869,7 @@ function Save-DisplaySettings {
         pinned = [bool]$window.Topmost
         autoRead = [bool]$controls.AutoRead.IsChecked
         trackKnob = [bool]$controls.TrackKnob.IsChecked
+        minimizeToTray = [bool]$script:state.MinimizeToTray
         normalPosition = $script:state.NormalPos
         stripPosition = $script:state.StripPos
     }
@@ -866,6 +879,7 @@ $script:savedSettings = Read-DisplaySettings
 if ($script:savedSettings) {
     if ($script:savedSettings.ContainsKey('pinned') -and -not $script:savedSettings.pinned) { Switch-Pinned }
     if ($script:savedSettings.ContainsKey('autoRead')) { $controls.AutoRead.IsChecked = $script:savedSettings.autoRead }
+    if ($script:savedSettings.ContainsKey('minimizeToTray')) { $script:state.MinimizeToTray = $script:savedSettings.minimizeToTray }
     if (Test-PositionVisible $script:savedSettings.normalPosition) { $script:state.NormalPos = $script:savedSettings.normalPosition }
     if (Test-PositionVisible $script:savedSettings.stripPosition) { $script:state.StripPos = $script:savedSettings.stripPosition }
 }
@@ -895,6 +909,10 @@ While the display is focused:
 
 Anywhere in Windows:
   Ctrl + Alt + K   Show / minimize the display
+
+Tray icon (shows the current pad layer):
+  Click            Show / minimize the display
+  Right-click      Layers, release / reconnect, views, and settings
 '@
 function Invoke-RenameShortcut {
     foreach ($i in 0..5) {
@@ -924,24 +942,133 @@ $window.Add_PreviewKeyDown({
         '^S$' { if ($script:state.StripOn) { Show-NormalView ([bool]$controls.Compact.IsChecked) } else { Set-StripView $true }; break }
         '^C$' { if ($script:state.StripOn) { Show-NormalView $true } else { $controls.Compact.IsChecked = -not $controls.Compact.IsChecked }; break }
         '^P$' { Switch-Pinned; break }
-        '^F1$' { [void][Windows.MessageBox]::Show($window, $script:shortcutHelp, 'TogKey Display shortcuts', 'OK', 'Information'); break }
+        '^F1$' { Show-ShortcutHelp; break }
         default { $handled = $false }
     }
     $eventArgs.Handled = $handled
 })
+function Show-ShortcutHelp {
+    if ($window.WindowState -eq 'Minimized') { Show-Display }
+    [void][Windows.MessageBox]::Show($window, $script:shortcutHelp, "TogKey Display $(Get-TogKeyVersion) · shortcuts", 'OK', 'Information')
+}
+
+# ---- Show / minimize (hotkey and tray) ----
+function Show-Display {
+    $window.ShowInTaskbar = $true
+    $window.WindowState = 'Normal'
+    [void]$window.Activate()
+}
+function Switch-DisplayVisibility {
+    if ($window.WindowState -eq 'Minimized') { Show-Display } else { $window.WindowState = 'Minimized' }
+}
+$window.Add_StateChanged({
+    # Minimize to tray hides the taskbar button rather than the window: Hide() would end ShowDialog.
+    if ($window.WindowState -eq 'Minimized' -and $script:tray -and $script:state.MinimizeToTray) { $window.ShowInTaskbar = $false }
+    elseif ($window.WindowState -ne 'Minimized') { $window.ShowInTaskbar = $true }
+})
+
+# ---- Tray icon ----
+function New-TrayIconImage([string]$Text, [bool]$Attention) {
+    $bitmap = [Drawing.Bitmap]::new(32, 32)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.SmoothingMode = 'AntiAlias'
+        $graphics.TextRenderingHint = 'AntiAliasGridFit'
+        $fill = if ($Attention) { [Drawing.Color]::FromArgb(0xEF, 0xCB, 0x85) } else { [Drawing.Color]::FromArgb(0x70, 0xDE, 0xC2) }
+        $path = [Drawing.Drawing2D.GraphicsPath]::new()
+        $path.AddArc(1, 1, 12, 12, 180, 90); $path.AddArc(19, 1, 12, 12, 270, 90)
+        $path.AddArc(19, 19, 12, 12, 0, 90); $path.AddArc(1, 19, 12, 12, 90, 90); $path.CloseFigure()
+        $graphics.FillPath([Drawing.SolidBrush]::new($fill), $path)
+        $font = [Drawing.Font]::new('Segoe UI', 22, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
+        $format = [Drawing.StringFormat]::new(); $format.Alignment = 'Center'; $format.LineAlignment = 'Center'
+        $graphics.DrawString($Text, $font, [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(0x10, 0x23, 0x1F)), [Drawing.RectangleF]::new(0, 1, 32, 32), $format)
+    } finally { $graphics.Dispose() }
+    $handle = $bitmap.GetHicon(); $bitmap.Dispose()
+    return $handle
+}
+function Update-TrayIcon([string]$Text, [bool]$Attention) {
+    if (-not $script:tray) { return }
+    $key = "$Text|$Attention"
+    if ($script:trayIconKey -ne $key) {
+        $handle = New-TrayIconImage $Text $Attention
+        $script:tray.Icon = [Drawing.Icon]::FromHandle($handle)
+        if ($script:trayIconHandle) { [void][TogKeyDisplay.NativeIcon]::DestroyIcon($script:trayIconHandle) }
+        $script:trayIconHandle = $handle; $script:trayIconKey = $key
+    }
+    $status = if (-not $script:state.Synced) { 'sync needed' } elseif ($script:state.Released) { "Pad $Text · released" } else { "Pad $Text" }
+    $tip = "TogKey Display $(Get-TogKeyVersion) · $status"
+    $script:tray.Text = if ($tip.Length -gt 127) { $tip.Substring(0, 127) } else { $tip }
+}
+function Add-TrayItem($Menu, [string]$Text, [scriptblock]$OnClick, $Tag = $null) {
+    $item = [Windows.Forms.ToolStripMenuItem]::new($Text)
+    $item.Tag = $Tag
+    if ($OnClick) { $item.Add_Click($OnClick) }
+    [void]$Menu.Items.Add($item)
+    return $item
+}
+function Initialize-TrayIcon {
+    $script:tray = [Windows.Forms.NotifyIcon]::new()
+    $menu = [Windows.Forms.ContextMenuStrip]::new()
+    $script:trayItems = @{}
+    $script:trayItems.Show = Add-TrayItem $menu 'Show display' { Switch-DisplayVisibility }
+    $script:trayItems.Show.Font = [Drawing.Font]::new($script:trayItems.Show.Font, [Drawing.FontStyle]::Bold)
+    [void]$menu.Items.Add([Windows.Forms.ToolStripSeparator]::new())
+    $script:trayItems.Layers = foreach ($n in 0..3) {
+        Add-TrayItem $menu "Pad $($n + 1)" { param($sender, $eventArgs) Confirm-PadLayer ([int]$sender.Tag) } $n
+    }
+    [void]$menu.Items.Add([Windows.Forms.ToolStripSeparator]::new())
+    $script:trayItems.Release = Add-TrayItem $menu 'Release pad' { if ($script:state.Monitor) { Disconnect-Pad } else { Start-PadMonitor -Resume } }
+    [void]$menu.Items.Add([Windows.Forms.ToolStripSeparator]::new())
+    # Restore first, so view changes save the window's real position rather than a minimized one.
+    $script:trayItems.Full = Add-TrayItem $menu 'Full view' { Show-Display; Show-NormalView $false }
+    $script:trayItems.Compact = Add-TrayItem $menu 'Compact view' { Show-Display; Show-NormalView $true }
+    $script:trayItems.Strip = Add-TrayItem $menu 'Strip view' { Show-Display; Set-StripView $true }
+    [void]$menu.Items.Add([Windows.Forms.ToolStripSeparator]::new())
+    $script:trayItems.Pin = Add-TrayItem $menu 'Pinned on top' { Switch-Pinned }
+    $script:trayItems.ToTray = Add-TrayItem $menu 'Minimize to tray' {
+        $script:state.MinimizeToTray = -not $script:state.MinimizeToTray
+        if ($window.WindowState -eq 'Minimized') { $window.ShowInTaskbar = -not $script:state.MinimizeToTray }
+    }
+    $script:trayItems.Help = Add-TrayItem $menu 'Keyboard shortcuts…' { Show-ShortcutHelp }
+    [void]$menu.Items.Add([Windows.Forms.ToolStripSeparator]::new())
+    [void](Add-TrayItem $menu 'Exit' { $window.Close() })
+    $menu.Add_Opening({
+        $script:trayItems.Show.Text = if ($window.WindowState -eq 'Minimized') { 'Show display' } else { 'Minimize' }
+        foreach ($item in $script:trayItems.Layers) {
+            $n = [int]$item.Tag
+            $name = Get-DisplayLabel "layer:$n" ''
+            $item.Text = "Pad $($n + 1)" + $(if ($name) { " · $name" } else { '' })
+            $item.Checked = $script:state.Synced -and $script:state.Layer -eq $n
+        }
+        $script:trayItems.Release.Text = if ($script:state.Monitor) { 'Release pad (for Vial)' } else { 'Reconnect to pad' }
+        $script:trayItems.Full.Checked = -not $script:state.StripOn -and -not $controls.Compact.IsChecked
+        $script:trayItems.Compact.Checked = -not $script:state.StripOn -and [bool]$controls.Compact.IsChecked
+        $script:trayItems.Strip.Checked = [bool]$script:state.StripOn
+        $script:trayItems.Pin.Checked = $window.Topmost
+        $script:trayItems.ToTray.Checked = [bool]$script:state.MinimizeToTray
+    })
+    $script:tray.ContextMenuStrip = $menu
+    $script:tray.Add_MouseClick({ param($sender, $eventArgs) if ($eventArgs.Button -eq 'Left') { Switch-DisplayVisibility } })
+    $script:tray.Visible = $true
+    Update-StripBadge
+}
+function Remove-TrayIcon {
+    if ($script:tray) { $script:tray.Visible = $false; $script:tray.Dispose(); $script:tray = $null }
+    if ($script:trayIconHandle) { [void][TogKeyDisplay.NativeIcon]::DestroyIcon($script:trayIconHandle); $script:trayIconHandle = $null }
+}
+
 $window.Add_SourceInitialized({
+    try { Initialize-TrayIcon } catch { Remove-TrayIcon }
     try {
         $handle = [Windows.Interop.WindowInteropHelper]::new($window).Handle
         # Ctrl+Alt+K: restore and focus the display, or minimize it if it is already showing.
-        $script:hotkey = [TogKeyDisplay.GlobalHotkey]::new($handle, 3, 0x4B, [Action]{
-            if ($window.WindowState -eq 'Minimized') {
-                $window.WindowState = 'Normal'
-                [void]$window.Activate()
-            } else { $window.WindowState = 'Minimized' }
-        })
+        $script:hotkey = [TogKeyDisplay.GlobalHotkey]::new($handle, 3, 0x4B, [Action]{ Switch-DisplayVisibility })
     } catch { $controls.Connection.Text = 'Ctrl+Alt+K is in use by another app; the show/hide shortcut is unavailable.' }
 })
-$window.Add_Closed({ if ($script:hotkey) { $script:hotkey.Dispose(); $script:hotkey = $null } })
+$window.Add_Closed({
+    if ($script:hotkey) { $script:hotkey.Dispose(); $script:hotkey = $null }
+    Remove-TrayIcon
+})
 $binding = [Windows.Data.Binding]::new('Text')
 $binding.Source = $controls.Connection
 [void]$controls.Connection.SetBinding([Windows.FrameworkElement]::ToolTipProperty,$binding)

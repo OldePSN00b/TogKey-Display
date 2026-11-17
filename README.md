@@ -9,7 +9,7 @@ This is an independent community utility, not an official TogKey or Vial applica
 ## Start
 
 1. Install [PowerShell 7 for Windows](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) if it is not already installed.
-2. Extract this folder to a writable location. Keep the included files together.
+2. Download **TogKey-Display-vX.Y.Z.zip** from the [latest release](https://github.com/OldePSN00b/TogKey-Display/releases/latest) and extract it to a writable location. Keep the included files together. When upgrading, keep your **TogKey labels.json** and **TogKey preferences.json**.
 3. Connect the Pad Plus. **Unlock it in Vial before using automatic knob tracking**, following the instructions below. Then close Vial, including any Vial browser tab, without unplugging the pad.
 4. Double-click **Start TogKey Display.cmd**.
 5. Click **Pad 1**, **Pad 2**, **Pad 3**, or **Pad 4** to match the layer currently shown on the pad's OLED. The app waits for this selection instead of assuming the pad is on its first layer.
@@ -92,9 +92,17 @@ Click the display once so it has focus, then:
 
 From anywhere in Windows, **Ctrl + Alt + K** restores and focuses the display, or minimizes it if it is showing. If another application already uses that combination, the display says so and the other shortcuts still work.
 
+## Tray icon
+
+While the display is open, a tray icon shows the current pad layer: **1–4** on teal, or **?** on amber when a layer needs to be selected. It also turns amber while the pad is released. Hover over it for the version and status. If Windows hides it in the overflow area, drag it onto the taskbar to keep it visible.
+
+- **Click** to show the display, or to minimize it if it is showing.
+- **Right-click** for **Pad 1–4**, **Release pad** / **Reconnect**, **Full**, **Compact**, and **Strip view**, **Pinned on top**, **Minimize to tray**, **Keyboard shortcuts**, and **Exit**.
+- With **Minimize to tray** on (the default), minimizing removes the taskbar button and the display is restored from the tray icon or **Ctrl + Alt + K**. Turn it off to keep the taskbar button. The setting is saved with the other preferences.
+
 ## Preferences
 
-The display saves its view (full, compact, or strip), the full/compact and strip window positions, **Pinned**, **Auto-read mappings**, and **Follow knob presses** when it closes, and restores them at the next launch. Knob tracking still waits for you to select the current layer. A saved position on a monitor that is no longer connected is ignored. The `-Compact` and `-Strip` command-line options override the saved view.
+The display saves its view (full, compact, or strip), the full/compact and strip window positions, **Pinned**, **Auto-read mappings**, **Follow knob presses**, and **Minimize to tray** when it closes, and restores them at the next launch. Knob tracking still waits for you to select the current layer. A saved position on a monitor that is no longer connected is ignored. The `-Compact` and `-Strip` command-line options override the saved view.
 
 Preferences are saved in **TogKey preferences.json** beside the script; `.gitignore` excludes it. Delete the file to return to defaults.
 
@@ -138,12 +146,13 @@ Other TogKey models and firmware identities are not supported by this release. O
 
 ## Files
 
-- `TogKey Display.ps1`: WPF interface, labels, preferences, and shortcuts.
-- `TogKey Core.psm1`: keycode names and labels, `.vil` import, and the compiled-code cache (no UI; shared with the tests).
+- `TogKey Display.ps1`: WPF interface, tray icon, labels, preferences, and shortcuts.
+- `TogKey Core.psm1`: version number, keycode names and labels, `.vil` import, and the compiled-code cache (no UI; shared with the tests).
 - `TogKey Hid.cs`: Windows HID access and read-only protocol client, compiled at first start.
 - `Start TogKey Display.cmd`: double-click launcher.
-- `tests\`: Pester tests (not needed to run the display).
 - `LICENSE`: MIT license for this utility.
+
+Repository only (not included in release downloads): `tests\` (Pester tests), `build\New-ReleasePackage.ps1` (release zip builder), and `.github\workflows\` (CI and releases).
 
 The C# parts (`TogKey Hid.cs` and the small hotkey helper) are compiled the first time the display starts and cached as DLLs in `%LOCALAPPDATA%\TogKeyDisplay\cache`, which saves about half a second on later launches. A cached build is used only for the exact same source and .NET runtime; editing the source or upgrading PowerShell rebuilds it automatically, and stale builds are removed. If the cache cannot be written, the display compiles in memory as before. Deleting the folder is always safe.
 
@@ -156,7 +165,24 @@ Install-PSResource Pester -Scope CurrentUser   # once; requires Pester 5
 Invoke-Pester .\tests
 ```
 
-GitHub Actions runs the same tests on Windows for every pull request and every push to `main` (`.github/workflows/tests.yml`). The workflow also syntax-checks every script, validates `tests/fixtures/sample-layout.json`, and renders the full, compact, and strip views from it. The test results and view screenshots are attached to each run as the **test-results** artifact, so interface changes can be reviewed without running the display.
+GitHub Actions runs the same tests on Windows for every pull request and every push to `main` (`.github/workflows/tests.yml`). The workflow also syntax-checks every script, validates `tests/fixtures/sample-layout.json`, and renders the full, compact, and strip views from it. The test results and view screenshots are attached to each run as the **test-results** artifact, so interface changes can be reviewed without running the display. Each run also builds the release zip and attaches it as the **package** artifact, after checking that it contains only the runtime files.
+
+## Releases
+
+The version lives in one place: `$script:TogKeyVersion` in `TogKey Core.psm1`. It appears in the header, the tray tooltip, the shortcut list, and `-Version`.
+
+To publish a release:
+
+1. Update `$script:TogKeyVersion` (for example to `1.1.0`) in a pull request and merge it.
+2. Tag the merged commit with the same version and push the tag:
+   ```powershell
+   git tag v1.1.0
+   git push origin v1.1.0
+   ```
+3. The **Release** workflow runs the full test workflow, builds `TogKey-Display-v1.1.0.zip` with only the runtime files plus a `.sha256` checksum, and creates a **draft** GitHub release with notes generated from merged pull requests. It fails without drafting anything if the tag does not match the version. A tag containing `-` (such as `v1.1.0-beta.1`) is marked as a pre-release.
+4. Review the draft on the repository's **Releases** page, edit the notes if needed, and click **Publish release**.
+
+To build the zip locally: `./build/New-ReleasePackage.ps1` (output in `dist\`, which Git ignores).
 
 The HID client permits only the read commands it uses. It does not write mappings, change firmware, reset memory, send keyboard input, or change the unlock state. No network connection is used by the utility.
 
@@ -170,6 +196,7 @@ pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -Strip
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -VialPath 'C:\Path\To\layout.vil'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -LabelsPath 'C:\Path\To\labels.json'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -SettingsPath 'C:\Path\To\preferences.json'
+pwsh -NoProfile -File '.\TogKey Display.ps1' -Version
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -ReadPadOnly
 pwsh -NoProfile -File '.\TogKey Display.ps1' -ValidateOnly -VialPath 'C:\Path\To\layout.vil'
 ```
