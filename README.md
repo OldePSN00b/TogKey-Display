@@ -40,6 +40,7 @@ If the display still asks you to unlock, click **Release pad**, reopen Vial and 
 - Six tiles arranged like the physical buttons, plus encoder turn and press labels.
 - Four layer selectors and optional estimated layer tracking from physical knob presses.
 - **Compact** view, approximately 300 × 340 pixels.
+- **Strip view**: a single row of the six button labels (about 760 × 45 pixels) to park along the top of the screen. See [Strip view](#strip-view).
 - Drag the header to move the display; **Pinned** keeps it above other windows.
 - Optional `.vil` import with **Open .vil**.
 
@@ -57,6 +58,17 @@ After editing in Vial, close Vial so the display can read the saved changes with
 6. If **Follow knob presses** was on, select **Pad 1–4** to match the OLED again, since presses made while released were not observed. Your saved custom labels are retained.
 
 The pad's Raw HID protocol does not identify which application requested a reply. The display opens its live session exclusively, filters recognizable stale replies, and shows **Pad is in use** if another application already has the pad open. Close Vial and other display copies before retrying. Macro editing does not itself change the firmware's VIA protocol version.
+
+## Strip view
+
+Click **Strip view** (beside **Compact**) to collapse the display to one slim row: a layer badge, the six button labels, and an expand button. The first time, the strip moves to the top center of the screen the display is on; drag anywhere on the bar to place it elsewhere. The strip and the full/compact window each remember their own position for the session.
+
+- **Layer badge:** shows the current pad layer (**?** before syncing). Click it to step to the next layer until it matches the OLED; each click also resynchronizes knob tracking. It turns amber when a sync is needed, the pad is released, or the pad is locked while tracking. Hover over it for the layer name, knob actions, and connection status.
+- **Right-click** the badge or the bar for options: jump to **Pad 1–4**, **Release pad** / **Reconnect**, **Pinned on top**, **Move to top of screen**, **Full view**, **Compact view**, and **Close**.
+- **Right-click a button label** to rename it, as in the other views.
+- **⤢** returns to the previous full or compact view.
+
+Live reads and knob tracking keep running in strip view.
 
 ## Label editing
 
@@ -111,6 +123,7 @@ Run from this folder:
 
 ```powershell
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -Compact
+pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -Strip
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -VialPath 'C:\Path\To\layout.vil'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -LabelsPath 'C:\Path\To\labels.json'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -ReadPadOnly

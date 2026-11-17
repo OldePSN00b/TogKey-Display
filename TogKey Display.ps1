@@ -5,6 +5,7 @@ param(
     [switch]$ValidateOnly,
     [switch]$ReadPadOnly,
     [switch]$Compact,
+    [switch]$Strip,
     [string]$LabelsPath,
     [string]$PreviewPath
 )
@@ -189,6 +190,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
       </Setter>
     </Style>
   </Window.Resources>
+  <Grid>
   <Border x:Name="Frame" Background="#10151F" BorderBrush="#303B4D" BorderThickness="1" Padding="22,18,22,18">
     <StackPanel>
       <Grid x:Name="DragArea" Background="Transparent" Margin="0,0,0,18">
@@ -248,19 +250,31 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
         <Button x:Name="Browse" Grid.Column="2" Content="Open .vil" FontSize="11" Padding="10,7"/>
       </Grid>
       <TextBlock x:Name="Source" Foreground="#71839B" FontSize="10" Margin="0,12,0,0" TextTrimming="CharacterEllipsis"/>
-      <CheckBox x:Name="Compact" Content="Compact" Foreground="#B9C5D6" FontSize="11" Margin="0,12,0,0" ToolTip="Shrink the display. Live reads and knob tracking keep running."/>
+      <Grid x:Name="ViewRow" Margin="0,12,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="Compact" Content="Compact" Foreground="#B9C5D6" FontSize="11" VerticalAlignment="Center" ToolTip="Shrink the display. Live reads and knob tracking keep running."/>
+        <Button x:Name="StripView" Grid.Column="1" Content="Strip view" FontSize="11" Padding="9,5" ToolTip="Collapse to a single row of buttons you can park at the top of the screen"/>
+      </Grid>
     </StackPanel>
   </Border>
+  <Border x:Name="Strip" Visibility="Collapsed" Background="#10151F" BorderBrush="#303B4D" BorderThickness="1" Padding="5" HorizontalAlignment="Left">
+    <StackPanel Orientation="Horizontal">
+      <Button x:Name="StripLayer" Content="?" Width="40" Padding="0,6" Margin="0,0,3,0" FontSize="13" FontWeight="Bold"/>
+      <StackPanel x:Name="StripTiles" Orientation="Horizontal"/>
+      <Button x:Name="StripExpand" Content="⤢" Width="28" Padding="0,6" Margin="3,0,0,0" ToolTip="Expand the display"/>
+    </StackPanel>
+  </Border>
+  </Grid>
 </Window>
 '@
 $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','ReleasePad')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','ReleasePad','ViewRow','StripView','Strip','StripLayer','StripTiles','StripExpand')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Released = $false }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Released = $false; StripOn = $false; StripPos = $null; NormalPos = $null }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
@@ -395,6 +409,25 @@ foreach ($i in 0..5) {
     [void]$controls.Tiles.Children.Add($border)
     $script:tileControls += @{ Border = $border; Label = $label; Hint = $hint }
 }
+# Strip view: the same six buttons as one slim row, for parking along a screen edge.
+$script:stripTiles = @()
+foreach ($i in 0..5) {
+    $border = [Windows.Controls.Border]::new()
+    $border.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#202C3E')
+    $border.CornerRadius = [Windows.CornerRadius]::new(6)
+    $border.Margin = [Windows.Thickness]::new(2,0,2,0)
+    $border.Padding = [Windows.Thickness]::new(6,0,6,0)
+    $border.Width = 108
+    $label = [Windows.Controls.TextBlock]::new()
+    $label.TextTrimming = 'CharacterEllipsis'
+    $label.FontSize = 11
+    $label.FontWeight = 'SemiBold'
+    $label.TextAlignment = 'Center'
+    $label.VerticalAlignment = 'Center'
+    $border.Child = $label
+    [void]$controls.StripTiles.Children.Add($border)
+    $script:stripTiles += @{ Border = $border; Label = $label }
+}
 
 function Update-Display {
     $layer = $script:state.Layer
@@ -428,6 +461,8 @@ function Update-Display {
             $script:tileControls[$i].Label.Text = Get-DisplayLabel "button:${layer}:$i" $key.Label
             $script:tileControls[$i].Hint.Text = $(if ($key.Inherited) { 'from layer 0' } else { ' ' })
             $script:tileControls[$i].Border.ToolTip = "Automatic: $($key.Label) • $($key.Code)`nRight-click to rename this button on layer $layer"
+            $script:stripTiles[$i].Label.Text = $script:tileControls[$i].Label.Text
+            $script:stripTiles[$i].Border.ToolTip = $script:tileControls[$i].Border.ToolTip
             $i++
         }
     }
@@ -447,9 +482,11 @@ function Update-Display {
     foreach ($control in @($controls.KnobRotate,$controls.KnobPress)) { $control.ToolTip = 'Automatic: ' + $control.Tag + ' · right-click to rename' }
     if (-not $script:state.Synced) {
         foreach ($tile in $script:tileControls) { $tile.Label.Text = '—'; $tile.Hint.Text = ' ' }
+        foreach ($tile in $script:stripTiles) { $tile.Label.Text = '—'; $tile.Border.ToolTip = 'Click the layer badge until it matches the OLED, or right-click for options' }
         $controls.KnobRotate.Text = 'Turn: —'
         $controls.KnobPress.Text = 'Press: —'
     }
+    Update-StripBadge
     $sourceName = if ($script:state.Mode -eq 'live') { 'Pad mappings' } elseif ($script:state.Mode -eq 'empty') { 'No mappings loaded' } else { [IO.Path]::GetFileName($script:state.Path) }
     $controls.Source.Text = $sourceName + ' · read ' + $script:state.Refreshed.ToString('h:mm:ss tt')
     $controls.Source.ToolTip = if ($script:state.Mode -eq 'live') { 'Read directly from the pad; active layer is not reported by firmware.' } else { $script:state.Path }
@@ -515,18 +552,23 @@ foreach ($n in 0..3) {
         $eventArgs.Handled = $true
     })
 }
+$renameButton = {
+    param($sender, $eventArgs)
+    # Unsynced strip tiles show placeholders; let the strip menu open instead.
+    if (-not $script:state.Synced) { return }
+    $position = [int]$sender.Tag
+    $layer = $script:state.Layer
+    $row = 1 + [int][Math]::Floor($position / 3)
+    $column = $position % 3
+    $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
+    Edit-DisplayLabel "button:${layer}:$position" $automatic "Pad layer $($layer+1) · button $($position+1)"
+    $eventArgs.Handled = $true
+}
 foreach ($i in 0..5) {
-    $script:tileControls[$i].Border.Tag = $i
-    $script:tileControls[$i].Border.Add_MouseRightButtonUp({
-        param($sender, $eventArgs)
-        $position = [int]$sender.Tag
-        $layer = $script:state.Layer
-        $row = 1 + [int][Math]::Floor($position / 3)
-        $column = $position % 3
-        $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
-        Edit-DisplayLabel "button:${layer}:$position" $automatic "Pad layer $($layer+1) · button $($position+1)"
-        $eventArgs.Handled = $true
-    })
+    foreach ($tile in @($script:tileControls[$i], $script:stripTiles[$i])) {
+        $tile.Border.Tag = $i
+        $tile.Border.Add_MouseRightButtonUp($renameButton)
+    }
 }
 $controls.KnobRotate.Add_MouseRightButtonUp({
     param($sender,$eventArgs)
@@ -547,10 +589,122 @@ $controls.DragArea.Add_MouseLeftButtonDown({
         try { $window.DragMove() } catch { }
     }
 })
-$controls.Pin.Add_Click({
+function Switch-Pinned {
     $window.Topmost = -not $window.Topmost
     $controls.Pin.Content = $(if ($window.Topmost) { 'Pinned ✓' } else { 'Pin on top' })
+}
+$controls.Pin.Add_Click({ Switch-Pinned })
+
+# ---- Strip view ----
+function Update-StripBadge {
+    $attention = (-not $script:state.Synced) -or $script:state.Released -or
+        ($controls.TrackKnob.IsChecked -and $script:state.LockState -in @('locked','unlocking'))
+    $controls.StripLayer.Content = if ($script:state.Synced) { [string]($script:state.Layer + 1) } else { '?' }
+    $controls.StripLayer.Background = [Windows.Media.BrushConverter]::new().ConvertFromString($(if ($attention) { '#EFCB85' } else { '#70DEC2' }))
+    $controls.StripLayer.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#10231F')
+}
+function Move-StripToTop {
+    # Top-center of the monitor the window is on, in WPF units (handles display scaling).
+    $source = [Windows.PresentationSource]::FromVisual($window)
+    if (-not $source) { return }
+    Add-Type -AssemblyName System.Windows.Forms
+    $handle = [Windows.Interop.WindowInteropHelper]::new($window).Handle
+    $area = [Windows.Forms.Screen]::FromHandle($handle).WorkingArea
+    $toWpf = $source.CompositionTarget.TransformFromDevice
+    $topLeft = $toWpf.Transform([Windows.Point]::new($area.Left, $area.Top))
+    $bottomRight = $toWpf.Transform([Windows.Point]::new($area.Right, $area.Bottom))
+    $window.Left = $topLeft.X + [Math]::Max(0, ($bottomRight.X - $topLeft.X - $window.Width) / 2)
+    $window.Top = $topLeft.Y
+}
+function Set-StripView([bool]$Enabled) {
+    if ($Enabled -eq [bool]$script:state.StripOn) { return }
+    if ($Enabled) {
+        if ($window.IsLoaded) { $script:state.NormalPos = @($window.Left, $window.Top) }
+        $controls.Frame.Visibility = 'Collapsed'
+        $controls.Strip.Visibility = 'Visible'
+        $controls.Strip.Measure([Windows.Size]::new([double]::PositiveInfinity, [double]::PositiveInfinity))
+        $window.Width = [Math]::Ceiling($controls.Strip.DesiredSize.Width)
+        $script:state.StripOn = $true
+        if ($window.IsLoaded) {
+            if ($script:state.StripPos) { $window.Left, $window.Top = $script:state.StripPos } else { Move-StripToTop }
+        }
+    } else {
+        $script:state.StripPos = @($window.Left, $window.Top)
+        $controls.Strip.Visibility = 'Collapsed'
+        $controls.Frame.Visibility = 'Visible'
+        $script:state.StripOn = $false
+        Set-CompactDisplay ([bool]$controls.Compact.IsChecked)
+        if ($script:state.NormalPos) { $window.Left, $window.Top = $script:state.NormalPos }
+    }
+}
+function Show-NormalView([bool]$CompactView) {
+    $controls.Compact.IsChecked = $CompactView
+    Set-StripView $false
+}
+$controls.StripView.Add_Click({ Set-StripView $true })
+$controls.StripExpand.Add_Click({ Show-NormalView ([bool]$controls.Compact.IsChecked) })
+$controls.StripLayer.Add_Click({
+    # Step through layers until the badge matches the OLED; each click also resyncs tracking.
+    $next = if ($script:state.Synced) { ($script:state.Layer + 1) % 4 } else { 0 }
+    Confirm-PadLayer $next
 })
+$controls.StripLayer.ToolTip = ' '
+$controls.StripLayer.Add_ToolTipOpening({
+    param($sender, $eventArgs)
+    $lines = [Collections.Generic.List[string]]::new()
+    if ($script:state.Synced) {
+        $name = Get-DisplayLabel "layer:$($script:state.Layer)" ''
+        $lines.Add("Pad layer $($script:state.Layer + 1)" + $(if ($name) { " · $name" } else { '' }) + ' · ' + $controls.LayerMode.Text.ToLower())
+        $lines.Add("Knob · $($controls.KnobRotate.Text) · $($controls.KnobPress.Text)")
+    } else { $lines.Add('Sync needed · click until this number matches the OLED') }
+    if ($controls.LockPanel.Visibility -eq 'Visible') { $lines.Add($controls.LockHeading.Text) }
+    $lines.Add($controls.Connection.Text)
+    $lines.Add('Click: next layer · Right-click: options · Drag the bar to move it')
+    $sender.ToolTip = $lines -join "`n"
+})
+$controls.Strip.Add_MouseLeftButtonDown({
+    param($sender, $eventArgs)
+    try { $window.DragMove() } catch { }
+})
+$stripMenu = [Windows.Controls.ContextMenu]::new()
+$script:stripLayerItems = @()
+foreach ($n in 0..3) {
+    $item = [Windows.Controls.MenuItem]::new(); $item.Tag = $n
+    $item.Add_Click({ param($sender, $eventArgs) Confirm-PadLayer ([int]$sender.Tag) })
+    [void]$stripMenu.Items.Add($item); $script:stripLayerItems += $item
+}
+[void]$stripMenu.Items.Add([Windows.Controls.Separator]::new())
+$stripReleaseItem = [Windows.Controls.MenuItem]::new()
+$stripReleaseItem.Add_Click({ if ($script:state.Monitor) { Disconnect-Pad } else { Start-PadMonitor -Resume } })
+[void]$stripMenu.Items.Add($stripReleaseItem)
+$stripPinItem = [Windows.Controls.MenuItem]::new(); $stripPinItem.Header = 'Pinned on top'
+$stripPinItem.Add_Click({ Switch-Pinned })
+[void]$stripMenu.Items.Add($stripPinItem)
+$stripTopItem = [Windows.Controls.MenuItem]::new(); $stripTopItem.Header = 'Move to top of screen'
+$stripTopItem.Add_Click({ Move-StripToTop })
+[void]$stripMenu.Items.Add($stripTopItem)
+[void]$stripMenu.Items.Add([Windows.Controls.Separator]::new())
+$stripFullItem = [Windows.Controls.MenuItem]::new(); $stripFullItem.Header = 'Full view'
+$stripFullItem.Add_Click({ Show-NormalView $false })
+[void]$stripMenu.Items.Add($stripFullItem)
+$stripCompactItem = [Windows.Controls.MenuItem]::new(); $stripCompactItem.Header = 'Compact view'
+$stripCompactItem.Add_Click({ Show-NormalView $true })
+[void]$stripMenu.Items.Add($stripCompactItem)
+$stripCloseItem = [Windows.Controls.MenuItem]::new(); $stripCloseItem.Header = 'Close'
+$stripCloseItem.Add_Click({ $window.Close() })
+[void]$stripMenu.Items.Add($stripCloseItem)
+$stripMenu.Add_Opened({
+    foreach ($item in $script:stripLayerItems) {
+        $n = [int]$item.Tag
+        $name = Get-DisplayLabel "layer:$n" ''
+        $item.Header = "Pad $($n + 1)" + $(if ($name) { " · $name" } else { '' })
+        $item.IsChecked = $script:state.Synced -and $script:state.Layer -eq $n
+    }
+    $stripReleaseItem.Header = if ($script:state.Monitor) { 'Release pad (for Vial)' } else { 'Reconnect to pad' }
+    $stripPinItem.IsChecked = $window.Topmost
+})
+$controls.Strip.ContextMenu = $stripMenu
+$window.Add_Loaded({ if ($script:state.StripOn -and -not $script:state.StripPos) { Move-StripToTop } })
 $controls.Reload.Add_Click({
     if ($script:state.Mode -eq 'live' -or $controls.AutoRead.IsChecked) { Start-PadMonitor -Resume }
     else { try { Open-Layout $script:state.Path } catch { Show-LoadError $_.Exception.Message } }
@@ -579,6 +733,7 @@ function Disconnect-Pad {
     $controls.Connection.Text = 'Pad released · Vial can connect now. Close Vial, then click Reconnect.'
     $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
     if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = 'Tracking paused while released · knob presses are not observed' }
+    Update-StripBadge
 }
 function Update-LockWarning([string]$Status) {
     $previous = $script:state.LockState
@@ -600,6 +755,7 @@ function Update-LockWarning([string]$Status) {
     }
     # Switch events may have been missed while monitoring was locked.
     if ($needsUnlock -and $previous -eq 'unlocked' -and $controls.TrackKnob.IsChecked) { Require-PadSync }
+    Update-StripBadge
 }
 $controls.UnlockHelp.Add_Click({
     $instructions = @'
@@ -680,6 +836,7 @@ function Start-PadMonitor([switch]$Resume) {
         $script:state.Released = $false
         # Presses made while released were never observed; the estimated layer may be stale.
         if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { Require-PadSync }
+        Update-StripBadge
     }
     try {
         Initialize-HidReader
@@ -753,12 +910,13 @@ function Set-CompactDisplay([bool]$Enabled) {
     $controls.Connection.TextWrapping = if ($Enabled) { 'NoWrap' } else { 'Wrap' }
     $controls.Connection.TextTrimming = 'CharacterEllipsis'
     $controls.Connection.Margin = [Windows.Thickness]::new(0,0,0,$(if ($Enabled) { 2 } else { 12 }))
-    $controls.Compact.Margin = [Windows.Thickness]::new(0,$(if ($Enabled) { 4 } else { 12 }),0,0)
+    $controls.ViewRow.Margin = [Windows.Thickness]::new(0,$(if ($Enabled) { 4 } else { 12 }),0,0)
     # Settings are hidden visually; the live reader, tracking and selected layer stay intact.
 }
 $controls.Compact.Add_Checked({ Set-CompactDisplay $true })
 $controls.Compact.Add_Unchecked({ Set-CompactDisplay $false })
 if ($Compact) { $controls.Compact.IsChecked = $true }
+if ($Strip) { Set-StripView $true }
 $binding = [Windows.Data.Binding]::new('Text')
 $binding.Source = $controls.Connection
 [void]$controls.Connection.SetBinding([Windows.FrameworkElement]::ToolTipProperty,$binding)
