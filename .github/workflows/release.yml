@@ -45,8 +45,16 @@ jobs:
           ZIP: ${{ steps.package.outputs.zip }}
           SHA: ${{ steps.package.outputs.sha }}
         run: |
+          # Prepended to the notes GitHub generates from merged pull requests.
+          $intro = @(
+            '**AI-generated code:** the code in this release was generated with AI (Anthropic''s Claude) under the maintainer''s direction.'
+            ''
+            '*Proudly negotiated with Claude to make this little tool.*'
+            ''
+            '**Download** `TogKey-Display-' + $env:TAG + '.zip`, extract it, and double-click **Start TogKey Display.cmd** (requires PowerShell 7). The `.sha256` file holds the zip''s SHA-256 checksum.'
+          ) -join "`n"
           $arguments = @('release', 'create', $env:TAG, $env:ZIP, $env:SHA,
-            '--draft', '--verify-tag', '--generate-notes', '--title', "TogKey Display $env:TAG")
+            '--draft', '--verify-tag', '--generate-notes', '--notes', $intro, '--title', "TogKey Display $env:TAG")
           if ($env:TAG -match '-') { $arguments += '--prerelease' }
           gh @arguments
           if ($LASTEXITCODE -ne 0) { throw 'Could not create the release.' }

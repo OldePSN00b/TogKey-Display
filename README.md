@@ -6,6 +6,10 @@ A floating Windows companion display for the **TogKey Pad Plus with Vial firmwar
 
 This is an independent community utility, not an official TogKey or Vial application.
 
+**AI-generated code:** the code in this repository was generated with AI (Anthropic's Claude) under the maintainer's direction.
+
+*Proudly negotiated with Claude to make this little tool.*
+
 ## Start
 
 1. Install [PowerShell 7 for Windows](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) if it is not already installed.
