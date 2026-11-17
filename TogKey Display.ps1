@@ -192,13 +192,14 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
   <Border x:Name="Frame" Background="#10151F" BorderBrush="#303B4D" BorderThickness="1" Padding="22,18,22,18">
     <StackPanel>
       <Grid x:Name="DragArea" Background="Transparent" Margin="0,0,0,18">
-        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="TOGKEY" FontSize="12" FontWeight="Bold" Foreground="#70DEC2"/>
           <TextBlock x:Name="Subtitle" Text="Your pad, at a glance" FontSize="18" FontWeight="SemiBold" Margin="0,3,0,0"/>
         </StackPanel>
-        <Button x:Name="Minimize" Grid.Column="1" Content="−" Width="30" Padding="0,5" Margin="0,0,5,0" VerticalAlignment="Top" ToolTip="Minimize"/>
-        <Button x:Name="Close" Grid.Column="2" Content="×" Width="30" Padding="0,5" VerticalAlignment="Top" ToolTip="Close"/>
+        <Button x:Name="ReleasePad" Grid.Column="1" Content="Release pad" FontSize="11" Padding="8,6" Margin="0,0,5,0" VerticalAlignment="Top" ToolTip="Disconnect from the pad so Vial can use it, without closing this display"/>
+        <Button x:Name="Minimize" Grid.Column="2" Content="−" Width="30" Padding="0,5" Margin="0,0,5,0" VerticalAlignment="Top" ToolTip="Minimize"/>
+        <Button x:Name="Close" Grid.Column="3" Content="×" Width="30" Padding="0,5" VerticalAlignment="Top" ToolTip="Close"/>
       </Grid>
       <Border x:Name="LockPanel" Background="#342D20" CornerRadius="6" Padding="9,7" Margin="0,0,0,10">
         <StackPanel>
@@ -235,7 +236,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
       <Grid x:Name="ReadSettings" Margin="0,0,0,10">
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <Button x:Name="ReadPad" Content="Read from pad" HorizontalAlignment="Left" Background="#29493F" Foreground="#A5F1D9" FontSize="11" Padding="10,8"/>
-        <CheckBox x:Name="AutoRead" Grid.Column="1" Content="Auto-read mappings" IsChecked="True" Foreground="#B9C5D6" VerticalAlignment="Center" FontSize="11" ToolTip="Read saved mappings every 8 seconds"/>
+        <CheckBox x:Name="AutoRead" Grid.Column="1" Content="Auto-read mappings" IsChecked="True" Foreground="#B9C5D6" VerticalAlignment="Center" FontSize="11" ToolTip="Read saved mappings every 8 seconds, or every 60 seconds while following knob presses"/>
       </Grid>
       <TextBlock x:Name="Connection" Text="Ready to read the pad" Foreground="#94A4BA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
       <CheckBox x:Name="TrackKnob" Content="Follow knob presses (estimated layer)" Foreground="#B9C5D6" FontSize="11" Margin="0,0,0,5"/>
@@ -256,10 +257,10 @@ $reader = [Xml.XmlNodeReader]::new($xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $reader.Close()
 $controls = @{}
-foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp')) {
+foreach ($name in @('DragArea','Minimize','Close','Layer0','Layer1','Layer2','Layer3','LayerHeading','LayerMode','Tiles','KnobRotate','KnobPress','Pin','Reload','Browse','Source','ReadPad','AutoRead','Connection','TrackKnob','TrackingStatus','Frame','Subtitle','LayerTabs','LayerHeader','KnobPanel','KnobHeading','LayerHelp','ReadSettings','Toolbar','Compact','SyncPrompt','LockPanel','LockHeading','LockHelp','UnlockHelp','ReleasePad')) {
     $controls[$name] = $window.FindName($name)
 }
-$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0 }
+$script:state = @{ Data = $null; Path = $VialPath; Layer = 0; Synced = $false; LockState = 'unknown'; Mode = 'file'; Refreshed = Get-Date; Monitor = $null; Timer = $null; Generation = 0; Released = $false }
 $script:labelPath = if ($LabelsPath) { [IO.Path]::GetFullPath($LabelsPath) } else { Join-Path $PSScriptRoot 'TogKey labels.json' }
 $script:displayLabels = @{}
 if (Test-Path -LiteralPath $script:labelPath) {
@@ -551,7 +552,7 @@ $controls.Pin.Add_Click({
     $controls.Pin.Content = $(if ($window.Topmost) { 'Pinned ✓' } else { 'Pin on top' })
 })
 $controls.Reload.Add_Click({
-    if ($script:state.Mode -eq 'live' -or $controls.AutoRead.IsChecked) { Start-PadMonitor }
+    if ($script:state.Mode -eq 'live' -or $controls.AutoRead.IsChecked) { Start-PadMonitor -Resume }
     else { try { Open-Layout $script:state.Path } catch { Show-LoadError $_.Exception.Message } }
 })
 $controls.Browse.Add_Click({ Select-Layout })
@@ -559,6 +560,25 @@ $controls.Browse.Add_Click({ Select-Layout })
 function Stop-PadMonitor {
     if ($script:state.Timer) { $script:state.Timer.Stop(); $script:state.Timer = $null }
     if ($script:state.Monitor) { $script:state.Monitor.Dispose(); $script:state.Monitor = $null }
+    Update-ReleaseButton
+}
+function Update-ReleaseButton {
+    if ($script:state.Monitor) {
+        $controls.ReleasePad.Content = 'Release pad'
+        $controls.ReleasePad.ToolTip = 'Disconnect from the pad so Vial can use it, without closing this display'
+    } else {
+        $controls.ReleasePad.Content = 'Reconnect'
+        $controls.ReleasePad.ToolTip = 'Close Vial first, then reconnect to read the saved mappings'
+    }
+}
+function Disconnect-Pad {
+    # Dispose waits for the reader to close its exclusive handle before reporting that Vial can connect.
+    Stop-PadMonitor
+    $script:state.Released = $true
+    Update-LockWarning 'offline'
+    $controls.Connection.Text = 'Pad released · Vial can connect now. Close Vial, then click Reconnect.'
+    $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
+    if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = 'Tracking paused while released · knob presses are not observed' }
 }
 function Update-LockWarning([string]$Status) {
     $previous = $script:state.LockState
@@ -585,12 +605,12 @@ $controls.UnlockHelp.Add_Click({
     $instructions = @'
 The pad must be unlocked for knob tracking. Manual selection still works while locked.
 
-1. Close this display, then open Vial and select your Pad Plus.
+1. Click Release pad at the top of this display, then open Vial and select your Pad Plus.
 2. Choose Security → Unlock (Ctrl+U in the desktop app).
 3. Hold both keys highlighted by Vial. For the supported Pad Plus firmware, these are the upper-left and lower-left of the six main buttons, not the knob.
 4. Keep holding until the progress bar finishes and the unlock dialog closes. Follow Vial's highlighted keys if they differ.
 5. Close Vial, leaving the pad plugged in. Do not choose Security → Lock.
-6. Reopen this display, select the layer shown on the OLED, then enable Follow knob presses. Expand compact view if needed.
+6. Click Reconnect, select the layer shown on the OLED, then enable Follow knob presses. Expand compact view if needed.
 
 Unplugging, resetting, or losing USB power normally locks the pad again.
 '@
@@ -605,7 +625,8 @@ function Receive-PadNotices {
                 $candidate = Convert-PadSnapshot $notice.Data
                 $script:state.Mode = 'live'; $script:state.Refreshed = Get-Date
                 Set-DisplayData $candidate
-                $controls.Connection.Text = 'Mappings read from pad · ' + $(if ($controls.AutoRead.IsChecked) { 'auto-read every 8 seconds' } else { 'auto-read paused' })
+                $seconds = if ($controls.TrackKnob.IsChecked) { [TogKeyDisplay.Monitor]::TrackingReadIntervalSeconds } else { [TogKeyDisplay.Monitor]::ReadIntervalSeconds }
+                $controls.Connection.Text = 'Mappings read from pad · ' + $(if ($controls.AutoRead.IsChecked) { "auto-read every $seconds seconds" } else { 'auto-read paused' })
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#70DEC2')
             }
             'status' { $controls.Connection.Text = $notice.Text }
@@ -649,7 +670,17 @@ function Receive-PadNotices {
         }
     }
 }
-function Start-PadMonitor {
+function Start-PadMonitor([switch]$Resume) {
+    if ($script:state.Released) {
+        # Checkbox changes must not grab the pad back while the user is working in Vial.
+        if (-not $Resume) {
+            $controls.Connection.Text = 'Pad released · click Reconnect after closing Vial'
+            return
+        }
+        $script:state.Released = $false
+        # Presses made while released were never observed; the estimated layer may be stale.
+        if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { Require-PadSync }
+    }
     try {
         Initialize-HidReader
         if (-not $script:state.Monitor) {
@@ -664,6 +695,7 @@ function Start-PadMonitor {
                 }
             })
             $script:state.Timer.Start()
+            Update-ReleaseButton
         }
         $script:state.Monitor.AutoRead = [bool]$controls.AutoRead.IsChecked
         $script:state.Monitor.TrackingEpoch = $script:state.Generation
@@ -671,7 +703,10 @@ function Start-PadMonitor {
         $script:state.Monitor.Refresh = $true
     } catch { $controls.Connection.Text = 'Reader could not start: ' + $_.Exception.Message }
 }
-$controls.ReadPad.Add_Click({ Start-PadMonitor })
+$controls.ReadPad.Add_Click({ Start-PadMonitor -Resume })
+$controls.ReleasePad.Add_Click({
+    if ($script:state.Monitor) { Disconnect-Pad } else { Start-PadMonitor -Resume }
+})
 $controls.AutoRead.Add_Checked({ Start-PadMonitor })
 $controls.AutoRead.Add_Unchecked({
     if ($script:state.Monitor) { $script:state.Monitor.AutoRead = $false }
