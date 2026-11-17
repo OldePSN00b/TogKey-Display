@@ -42,7 +42,7 @@ If the display still asks you to unlock, click **Release pad**, reopen Vial and 
 - Six tiles arranged like the physical buttons, plus encoder turn and press labels.
 - Four layer selectors and optional estimated layer tracking from physical knob presses.
 - **Compact** view, approximately 300 × 340 pixels.
-- **Strip view**: a single row of the six button labels (about 760 × 45 pixels) to park along the top of the screen. See [Strip view](#strip-view).
+- **Strip view**: a single row of the six button labels, each tagged with its position (about 840 × 45 pixels) to park along the top of the screen. See [Strip view](#strip-view).
 - Drag the header to move the display; **Pinned** keeps it above other windows.
 - Remembers the view, window positions, pin, and reading options between launches. See [Preferences](#preferences).
 - Keyboard shortcuts, including **Ctrl + Alt + K** to show or minimize the display from anywhere. See [Keyboard shortcuts](#keyboard-shortcuts).
@@ -65,8 +65,9 @@ The pad's Raw HID protocol does not identify which application requested a reply
 
 ## Strip view
 
-Click **Strip view** (beside **Compact**) to collapse the display to one slim row: a layer badge, the six button labels, and an expand button. The first time, the strip moves to the top center of the screen the display is on; drag anywhere on the bar to place it elsewhere. The strip and the full/compact window each remember their own position for the session.
+Click **Strip view** (beside **Compact**) to collapse the display to one slim row: a layer badge, the six button labels, and an expand button. The first time, the strip moves to the top center of the screen the display is on; drag anywhere on the bar to place it elsewhere. The strip and the full/compact window each remember their own position, including between launches.
 
+- **Position tags:** each button is tagged with where it sits on the pad: **TL**, **TM**, **TR** for the top row and **BL**, **BM**, **BR** for the bottom row, with a wider gap between the two rows. Hover over a button for its full position name.
 - **Layer badge:** shows the current pad layer (**?** before syncing). Click it to step to the next layer until it matches the OLED; each click also resynchronizes knob tracking. It turns amber when a sync is needed, the pad is released, or the pad is locked while tracking. Hover over it for the layer name, knob actions, and connection status.
 - **Right-click** the badge or the bar for options: jump to **Pad 1–4**, **Release pad** / **Reconnect**, **Pinned on top**, **Move to top of screen**, **Full view**, **Compact view**, and **Close**.
 - **Right-click a button label** to rename it, as in the other views.
