@@ -154,7 +154,10 @@ pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -VialPath 'C:\Path\To\layout.v
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -LabelsPath 'C:\Path\To\labels.json'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -SettingsPath 'C:\Path\To\preferences.json'
 pwsh -NoProfile -STA -File '.\TogKey Display.ps1' -ReadPadOnly
+pwsh -NoProfile -File '.\TogKey Display.ps1' -ValidateOnly -VialPath 'C:\Path\To\layout.vil'
 ```
+
+`-ValidateOnly` checks a `.vil` export without opening the display and prints the resolved button and knob-press labels for each layer. It requires `-VialPath`.
 
 `-ReadPadOnly` prints a mapping snapshot and exits. Macro entries in that diagnostic snapshot contain only text segments, not the original action sequence; it is not a Vial backup. It may contain the connected pad's macro text, so review it before sharing.
 

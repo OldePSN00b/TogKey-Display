@@ -14,7 +14,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Read-VialLayout([string]$Path) {
-    $data = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -Depth 100
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'No Vial export was specified.' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Vial export not found: $Path" }
+    try { $data = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -Depth 100 }
+    catch { throw "This file is not a Vial export (it is not valid JSON): $Path" }
     if (-not $data.layout -or $data.layout.Count -ne 4) {
         throw 'Please choose a TogKey Pad Plus export containing four layers.'
     }
@@ -149,6 +152,7 @@ function Get-ResolvedKey($Data, [int]$Layer, [int]$Row, [int]$Column) {
 }
 
 if ($ValidateOnly) {
+    if (-not $VialPath) { throw "-ValidateOnly checks a Vial export. Usage: -ValidateOnly -VialPath 'C:\Path\To\layout.vil'" }
     $data = Read-VialLayout $VialPath
     foreach ($layer in 0..3) {
         $labels = foreach ($row in 1..2) {
@@ -462,9 +466,9 @@ foreach ($i in 0..5) {
 function Update-Display {
     $layer = $script:state.Layer
     $data = $script:state.Data
-    $defaultNames = @('','','','')
     foreach ($n in 0..3) {
-        $name = Get-DisplayLabel "layer:$n" $defaultNames[$n]
+        # Layers have no automatic name; only a custom label replaces "Pad N".
+        $name = Get-DisplayLabel "layer:$n" ''
         $padNumber = $n + 1
         $text = if ($name) { "$padNumber · $name" } else { "Pad $padNumber" }
         $tabText = [Windows.Controls.TextBlock]::new()
@@ -472,7 +476,6 @@ function Update-Display {
         $controls["Layer$n"].Content = $tabText
         $controls["Layer$n"].ToolTip = "$text · Vial layer $n · click to sync, right-click to rename"
         $controls["Layer$n"].Tag = $n
-        $controls["Layer$n"].DataContext = $defaultNames[$n]
     }
     $controls.LayerHeading.Text = if ($script:state.Synced) { "Pad layer $($layer+1)" } else { 'Choose pad layer' }
     $controls.LayerMode.Text = if (-not $script:state.Synced) { 'SYNC NEEDED' } elseif ($controls.TrackKnob.IsChecked) { 'ESTIMATED LAYER' } else { 'MANUAL LAYER' }
@@ -544,8 +547,9 @@ function Require-PadSync {
     $controls.TrackingStatus.Text = 'Select the layer shown on your pad before knob tracking begins'
     Update-Display
 }
-function Open-Layout([string]$Path) {
-    $candidate = Read-VialLayout $Path
+function Open-Layout([string]$Path, $Candidate = $null) {
+    # Callers that already validated the export pass it in to avoid a second read.
+    $candidate = if ($Candidate) { $Candidate } else { Read-VialLayout $Path }
     $script:state.Path = $Path
     $script:state.Mode = 'file'
     $script:state.Refreshed = Get-Date
@@ -560,12 +564,13 @@ function Select-Layout {
     $dialog.Filter = 'Vial exports (*.vil)|*.vil'
     if ($dialog.ShowDialog($window)) {
         try {
-            # Stop the old reader so queued live data cannot replace a deliberately selected export.
+            # Validate before stopping the reader, so a bad file leaves the live display untouched.
             $candidate = Read-VialLayout $dialog.FileName
+            # Stop the old reader so queued live data cannot replace a deliberately selected export.
             Stop-PadMonitor
             $controls.AutoRead.IsChecked = $false
             $controls.TrackKnob.IsChecked = $false
-            Open-Layout $dialog.FileName
+            Open-Layout $dialog.FileName $candidate
             Update-LockWarning 'offline'
             $controls.Connection.Text = 'Viewing an export · Read from pad reconnects'
         } catch { Show-LoadError $_.Exception.Message }
@@ -814,7 +819,6 @@ function Receive-PadNotices {
                 $controls.Connection.Text = 'Mappings read from pad · ' + $(if ($controls.AutoRead.IsChecked) { "auto-read every $seconds seconds" } else { 'auto-read paused' })
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#70DEC2')
             }
-            'status' { $controls.Connection.Text = $notice.Text }
             'busy' {
                 $controls.Connection.Text = $notice.Text
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
@@ -836,10 +840,6 @@ function Receive-PadNotices {
                 $controls.Connection.Text = $notice.Text + ' Previous labels retained.'
                 $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
                 if ($controls.TrackKnob.IsChecked) { $controls.TrackingStatus.Text = 'Tracking interrupted · select a layer to resync after reconnecting' }
-            }
-            'error' {
-                $controls.Connection.Text = $notice.Text
-                $controls.Connection.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EFCB85')
             }
             'tracking' { if ($controls.TrackKnob.IsChecked -and $script:state.Synced) { $controls.TrackingStatus.Text = $notice.Text } }
             'press' {
@@ -1075,7 +1075,8 @@ $binding = [Windows.Data.Binding]::new('Text')
 $binding.Source = $controls.Connection
 [void]$controls.Connection.SetBinding([Windows.FrameworkElement]::ToolTipProperty,$binding)
 
-if ($VialPath -and (Test-Path -LiteralPath $VialPath)) {
+if ($VialPath) {
+    # A missing or invalid export is reported instead of silently falling back to the pad.
     try { Open-Layout $VialPath } catch {
         if ($PreviewPath) { throw }
         Show-LoadError $_.Exception.Message
