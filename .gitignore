@@ -11,3 +11,6 @@ TogKey preferences.json
 .idea/
 Thumbs.db
 Desktop.ini
+
+# Release build output
+dist/

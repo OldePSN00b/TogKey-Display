@@ -435,3 +435,36 @@ Describe 'Import-CompiledSource' {
         ("$namespace.Probe" -as [type]).Assembly.Location | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Version and release package' {
+    BeforeAll {
+        $root = Split-Path -Parent $PSScriptRoot
+        $builder = Join-Path $root 'build\New-ReleasePackage.ps1'
+    }
+    It 'has a semantic version' {
+        Get-TogKeyVersion | Should -Match '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+    }
+    It 'reports the version from the command line' {
+        pwsh -NoProfile -File (Join-Path $root 'TogKey Display.ps1') -Version | Should -BeExactly "TogKey Display $(Get-TogKeyVersion)"
+    }
+    It 'packages exactly the runtime files inside a TogKey Display folder' {
+        # Personal files beside the script must never be picked up.
+        $result = & $builder -OutputDirectory (Join-Path $TestDrive 'dist')
+        $result.Package | Should -BeLike "*TogKey-Display-v$(Get-TogKeyVersion).zip"
+        $zip = [IO.Compression.ZipFile]::OpenRead($result.Package)
+        try { $entries = @($zip.Entries.FullName | Sort-Object) } finally { $zip.Dispose() }
+        $entries | Should -Be (@('LICENSE', 'README.md', 'Start TogKey Display.cmd', 'TogKey Core.psm1', 'TogKey Display.ps1', 'TogKey Hid.cs') |
+            ForEach-Object { "TogKey Display/$_" } | Sort-Object)
+    }
+    It 'writes a matching SHA-256 file' {
+        $result = & $builder -OutputDirectory (Join-Path $TestDrive 'dist-hash')
+        $line = Get-Content -LiteralPath $result.HashFile -Raw
+        $line | Should -BeExactly ("{0}  {1}" -f (Get-FileHash $result.Package -Algorithm SHA256).Hash.ToLowerInvariant(), [IO.Path]::GetFileName($result.Package))
+    }
+    It 'accepts a tag that matches the version' {
+        { & $builder -OutputDirectory (Join-Path $TestDrive 'dist-tag') -ExpectedVersion "v$(Get-TogKeyVersion)" } | Should -Not -Throw
+    }
+    It 'refuses a tag that does not match the version' {
+        { & $builder -OutputDirectory (Join-Path $TestDrive 'dist-bad') -ExpectedVersion 'v0.0.1' } | Should -Throw '*does not match*'
+    }
+}

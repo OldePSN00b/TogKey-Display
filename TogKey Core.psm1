@@ -1,6 +1,10 @@
 # Shared, UI-free functions for TogKey Display: keycode naming, .vil reading, and compiled-type caching.
 # Imported as a module by "TogKey Display.ps1" and by the Pester tests in tests\.
 
+# The single source of the release version. A release tag (vX.Y.Z) must match it; see README "Releases".
+$script:TogKeyVersion = '1.0.0'
+function Get-TogKeyVersion { $script:TogKeyVersion }
+
 function Read-VialLayout([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'No Vial export was specified.' }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Vial export not found: $Path" }
@@ -330,4 +334,4 @@ function Initialize-HidReader {
     Import-CompiledSource -TypeName 'TogKeyDisplay.Reader' -CacheName 'TogKeyHid' `
         -Source (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'TogKey Hid.cs') -Raw)
 }
-Export-ModuleMember -Function Read-VialLayout, Convert-Keycode, Get-KeyLabel, Convert-PadSnapshot, Get-ResolvedKey, Import-CompiledSource, Initialize-HidReader, Get-CompiledTypeCacheDirectory
+Export-ModuleMember -Function Get-TogKeyVersion, Read-VialLayout, Convert-Keycode, Get-KeyLabel, Convert-PadSnapshot, Get-ResolvedKey, Import-CompiledSource, Initialize-HidReader, Get-CompiledTypeCacheDirectory

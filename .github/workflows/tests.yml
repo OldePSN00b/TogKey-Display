@@ -6,6 +6,8 @@ on:
   # Every pull request, including ones stacked on other feature branches.
   pull_request:
   workflow_dispatch:
+  # Called by release.yml so a release is only drafted after the same checks pass.
+  workflow_call:
 
 permissions:
   contents: read
@@ -86,6 +88,27 @@ jobs:
 
       - name: Validate sample export
         run: pwsh -NoProfile -File './TogKey Display.ps1' -ValidateOnly -VialPath './tests/fixtures/sample-layout.json'
+
+      - name: Build release package
+        # The same zip a release would publish, so every pull request can be downloaded and tried.
+        run: |
+          $result = ./build/New-ReleasePackage.ps1 -OutputDirectory dist
+          $result | Format-List | Out-String
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead($result.Package)
+          try { $entries = @($zip.Entries.FullName) } finally { $zip.Dispose() }
+          $entries
+          $expected = @('Start TogKey Display.cmd', 'TogKey Display.ps1', 'TogKey Core.psm1', 'TogKey Hid.cs', 'README.md', 'LICENSE') |
+            ForEach-Object { "TogKey Display/$_" }
+          $unexpected = @($entries | Where-Object { $_ -notin $expected -and $_ -ne 'TogKey Display/' })
+          $missing = @($expected | Where-Object { $_ -notin $entries })
+          if ($unexpected -or $missing) { throw "Package contents wrong. Unexpected: $unexpected Missing: $missing" }
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: dist/
 
       - name: Upload test results and previews
         if: always()
