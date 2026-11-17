@@ -276,6 +276,10 @@ namespace TogKeyDisplay {
         public volatile bool TrackKnob=false;
         public volatile bool Refresh=true;
         public int TrackingEpoch;
+        // A mapping read pauses switch sampling, so read far less often while following the knob.
+        // Edits made in Vial arrive on reconnect (Release pad / Reconnect), which always reads immediately.
+        public const int ReadIntervalSeconds=8;
+        public const int TrackingReadIntervalSeconds=60;
         readonly CancellationTokenSource stop=new CancellationTokenSource();
         readonly ConcurrentQueue<Notice> notices=new ConcurrentQueue<Notice>();
         readonly Task worker;
@@ -284,7 +288,7 @@ namespace TogKeyDisplay {
         void Post(string kind,string text=null,Snapshot data=null) { notices.Enqueue(new Notice(kind,text,data)); }
         void Wait(int ms) { if(stop.Token.WaitHandle.WaitOne(ms)) stop.Token.ThrowIfCancellationRequested(); }
         void Run() {
-            DateTime nextRead=DateTime.MinValue;
+            DateTime lastRead=DateTime.MinValue;
             while(!stop.IsCancellationRequested) {
                 try {
                     if(!Refresh && !AutoRead && !TrackKnob) { Wait(100); continue; }
@@ -297,11 +301,13 @@ namespace TogKeyDisplay {
                         int observedEpoch=-1;
                         DateTime nextUnlock=DateTime.MinValue;
                         while(!stop.IsCancellationRequested) {
-                            if(snapshot==null || Refresh || (AutoRead && DateTime.UtcNow>=nextRead)) {
+                            // Measured from the last read so toggling tracking takes effect immediately.
+                            int interval=TrackKnob ? TrackingReadIntervalSeconds : ReadIntervalSeconds;
+                            if(snapshot==null || Refresh || (AutoRead && DateTime.UtcNow>=lastRead.AddSeconds(interval))) {
                                 Refresh=false;
                                 snapshot=Reader.Read(hid.Query);
                                 Post("snapshot",null,snapshot);
-                                nextRead=DateTime.UtcNow.AddSeconds(8);
+                                lastRead=DateTime.UtcNow;
                                 // Reads pause physical sampling: require a fresh baseline rather than inventing a press.
                                 wasDown=null;
                                 if(TrackKnob) Post("tracking","Knob tracking · estimated; select a layer to sync");
@@ -346,6 +352,10 @@ namespace TogKeyDisplay {
                 }
             }
         }
-        public void Dispose() { stop.Cancel(); }
+        public void Dispose() {
+            stop.Cancel();
+            // Wait briefly so the exclusive HID handle is closed before Vial is told it can connect.
+            try { worker.Wait(2000); } catch(AggregateException) { }
+        }
     }
 }

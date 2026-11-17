@@ -20,22 +20,23 @@ No administrator access, firmware changes, export file, or third-party HID packa
 
 The display automatically checks the lock state while connected, even when knob tracking is off or the starting layer has not been selected. A **Pad locked · knob tracking unavailable** banner appears in both full and compact views. Click **How to unlock** for instructions in the GUI. The banner distinguishes unlocking in progress and disappears once an unlocked state is confirmed. A failed check is shown as an unknown/checking state, rather than assuming the pad is locked or unlocked.
 
-1. **Close TogKey Display** so only Vial communicates with the pad during unlocking.
+1. Click **Release pad** at the top of TogKey Display (or close it) so only Vial communicates with the pad during unlocking.
 2. **Connect the Pad Plus by USB** and open the [Vial desktop application](https://get.vial.today/) or [Vial in a compatible browser](https://vial.rocks/). If the browser asks for a device, select the Pad Plus and allow the connection.
 3. **Select the Pad Plus** in Vial's device list. Confirm that its key layout appears.
 4. Open **Security → Unlock**. In the desktop application, **Ctrl+U** is the shortcut.
 5. Vial opens an unlock prompt showing the physical keys to hold. For the Pad Plus firmware supported by this utility, these are the **upper-left and lower-left keys of the six main buttons**—the two buttons in the leftmost column, not the knob. If your Vial prompt highlights a different pair, use the keys it highlights.
 6. **Press and hold both highlighted keys together** until Vial's progress bar finishes and the unlock dialog closes. Keep holding for the full countdown; releasing early can restart it. This is a physical key combination, regardless of the macros or actions assigned to those buttons.
 7. **Close Vial or its browser tab. Leave the USB cable connected.** Do not select **Security → Lock**, because that disables switch monitoring again.
-8. Start **TogKey Display**, select **Pad 1–4** to match the OLED, and enable **Follow knob presses**. If you are in compact view, uncheck **Compact** temporarily to access that option.
+8. Click **Reconnect** in TogKey Display (or start it), select **Pad 1–4** to match the OLED, and enable **Follow knob presses**. If you are in compact view, uncheck **Compact** temporarily to access that option.
 
 Unplugging the pad, resetting it, or losing USB power normally locks it again. Repeat these steps after reconnecting if the display asks you to unlock. Closing Vial alone does not relock the pad. Vial's unlock procedure and relocking behavior are described in its [security documentation](https://get.vial.today/docs/security.html).
 
-If the display still asks you to unlock, close the display, reopen Vial and complete the countdown again, then close Vial and restart the display. Unlocking and choosing the current layer are separate steps: unlocking permits switch monitoring; selecting **Pad 1–4** synchronizes the estimated layer.
+If the display still asks you to unlock, click **Release pad**, reopen Vial and complete the countdown again, then close Vial and click **Reconnect**. Unlocking and choosing the current layer are separate steps: unlocking permits switch monitoring; selecting **Pad 1–4** synchronizes the estimated layer.
 
 ## Features
 
-- Read mappings directly from the connected pad, automatically every eight seconds or immediately with **Read from pad**.
+- Read mappings directly from the connected pad, automatically every eight seconds (every 60 seconds while following knob presses, since each read briefly pauses switch monitoring) or immediately with **Read from pad**.
+- **Release pad** disconnects from the pad so Vial can use it, without closing the display; **Reconnect** resumes and reads the saved mappings immediately.
 - Six tiles arranged like the physical buttons, plus encoder turn and press labels.
 - Four layer selectors and optional estimated layer tracking from physical knob presses.
 - **Compact** view, approximately 300 × 340 pixels.
@@ -46,14 +47,14 @@ After editing in Vial, close Vial so the display can read the saved changes with
 
 ### Editing mappings or macros in Vial
 
-**Close TogKey Display completely before opening Vial.** This is the recommended workflow based on testing with the pad. Minimizing the window or turning off **Auto-read mappings** is not sufficient: lock checks and knob monitoring can still use the connection.
+**Click Release pad before opening Vial.** This closes the display's connection to the pad while keeping the window open. Minimizing the window or turning off **Auto-read mappings** is not sufficient: lock checks and knob monitoring can still use the connection. While released, changing the checkboxes does not reconnect; only **Reconnect**, **Read from pad**, or **Refresh** does. Closing the display with its **×** button also works.
 
-1. Close TogKey Display using its **×** button.
+1. Click **Release pad** in the display's header (available in compact view too).
 2. Open the Vial desktop application or browser version manually, select the Pad Plus, and unlock it if needed.
 3. Make your mapping or macro changes. Close and reopen Vial to confirm that the new configuration persisted before relying on it.
 4. Close Vial, including its browser tab, without unplugging the pad.
-5. Start TogKey Display again. It reads the saved mappings directly from the pad.
-6. Select **Pad 1–4** to match the OLED, then enable **Follow knob presses** if desired. Your saved custom labels are retained.
+5. Click **Reconnect**. The display reads the saved mappings directly from the pad.
+6. If **Follow knob presses** was on, select **Pad 1–4** to match the OLED again, since presses made while released were not observed. Your saved custom labels are retained.
 
 The pad's Raw HID protocol does not identify which application requested a reply. The display opens its live session exclusively, filters recognizable stale replies, and shows **Pad is in use** if another application already has the pad open. Close Vial and other display copies before retrying. Macro editing does not itself change the firmware's VIA protocol version.
 
