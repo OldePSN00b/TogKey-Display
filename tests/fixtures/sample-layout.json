@@ -1,0 +1,18 @@
+{
+  "layout": [
+    [["KC_NO", "KC_NO", "USER00"], ["LCTL(KC_C)", "LCTL(KC_V)", "KC_MUTE"], ["M0", "M1", "KC_MPLY"]],
+    [["KC_NO", "KC_NO", "USER00"], ["LT(1,KC_SPACE)", "LCTL_T(KC_A)", "KC_TRNS"], ["MO(2)", "OSM(MOD_LSFT)", "0x4105"]],
+    [["KC_NO", "KC_NO", "USER00"], ["KC_BTN1", "KC_WH_U", "RGB_TOG"], ["KC_WBAK", "KC_CALC", "TD(0)"]],
+    [["KC_NO", "KC_NO", "USER00"], ["HYPR(KC_K)", "C_S_T(KC_X)", "TG(3)"], ["KC_P5", "KC_MINUS", "0x9999"]]
+  ],
+  "encoder_layout": [
+    [["KC_VOLD", "KC_VOLU"]],
+    [["KC_TRNS", "KC_TRNS"]],
+    [["KC_WH_D", "KC_WH_U"]],
+    [["KC_MPRV", "KC_MNXT"]]
+  ],
+  "macro": [
+    [["text", "https://www.github.com"]],
+    [["text", "C:\\Program Files\\App\\notepad.exe"]]
+  ]
+}

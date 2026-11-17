@@ -1,5 +1,7 @@
 # TogKey Display
 
+[![Tests](https://github.com/OldePSN00b/TogKey-Display/actions/workflows/tests.yml/badge.svg)](https://github.com/OldePSN00b/TogKey-Display/actions/workflows/tests.yml)
+
 A floating Windows companion display for the **TogKey Pad Plus with Vial firmware**. It reads the pad's saved mappings, shows a six-button layout and encoder actions, and supports compact view and editable labels.
 
 This is an independent community utility, not an official TogKey or Vial application.
@@ -153,6 +155,8 @@ The tests cover keycode naming and labels, `.vil` validation, the read-only comm
 Install-PSResource Pester -Scope CurrentUser   # once; requires Pester 5
 Invoke-Pester .\tests
 ```
+
+GitHub Actions runs the same tests on Windows for every pull request and every push to `main` (`.github/workflows/tests.yml`). The workflow also syntax-checks every script, validates `tests/fixtures/sample-layout.json`, and renders the full, compact, and strip views from it. The test results and view screenshots are attached to each run as the **test-results** artifact, so interface changes can be reviewed without running the display.
 
 The HID client permits only the read commands it uses. It does not write mappings, change firmware, reset memory, send keyboard input, or change the unlock state. No network connection is used by the utility.
 
