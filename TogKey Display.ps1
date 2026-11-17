@@ -13,142 +13,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Read-VialLayout([string]$Path) {
-    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'No Vial export was specified.' }
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Vial export not found: $Path" }
-    try { $data = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -Depth 100 }
-    catch { throw "This file is not a Vial export (it is not valid JSON): $Path" }
-    if (-not $data.layout -or $data.layout.Count -ne 4) {
-        throw 'Please choose a TogKey Pad Plus export containing four layers.'
-    }
-    foreach ($layer in $data.layout) {
-        if ($layer.Count -ne 3) { throw 'This export does not have the expected 3 by 3 matrix.' }
-        foreach ($row in $layer) {
-            if ($row.Count -ne 3) { throw 'This export does not have the expected 3 by 3 matrix.' }
-        }
-    }
-    return $data
-}
-
-function Get-KeyLabel($Code, $Data) {
-    $names = @{
-        KC_VOLD = 'Volume down'; KC_VOLU = 'Volume up'; KC_MUTE = 'Mute'
-        KC_MPRV = 'Previous track'; KC_MPLY = 'Play / Pause'; KC_MNXT = 'Next track'
-        KC_NO = 'Unassigned'; KC_TRNS = 'Transparent'; USER00 = 'Cycle layers'
-        QK_KB_0 = 'Cycle layers'; TOG_LAY = 'Cycle layers'
-        KC_ENTER = 'Enter'; KC_ESC = 'Escape'; KC_SPACE = 'Space'; KC_TAB = 'Tab'
-        KC_BSPC = 'Backspace'; KC_DEL = 'Delete'; KC_LGUI = 'Left Windows'; KC_RGUI = 'Right Windows'
-        KC_LCTL = 'Left Ctrl'; KC_RCTL = 'Right Ctrl'; KC_LSFT = 'Left Shift'; KC_RSFT = 'Right Shift'
-        KC_LALT = 'Left Alt'; KC_RALT = 'Right Alt'; KC_CAPS = 'Caps Lock'; KC_MSTP = 'Stop media'
-        KC_LEFT = 'Left arrow'; KC_RIGHT = 'Right arrow'; KC_UP = 'Up arrow'; KC_DOWN = 'Down arrow'
-    }
-    $key = [string]$Code
-    if ($names.ContainsKey($key)) { return $names[$key] }
-    if ($key -match '^M(\d+)$') {
-        $index = [int]$Matches[1]
-        $texts = @()
-        if ($index -lt $Data.macro.Count) {
-            $texts = @($Data.macro[$index] | Where-Object { $_[0] -eq 'text' } | ForEach-Object { [string]$_[1] })
-            foreach ($value in $texts) {
-                if ($value -match '^https?://') {
-                    $address = $null
-                    if ([uri]::TryCreate($value, [UriKind]::Absolute, [ref]$address)) {
-                        return $address.Host -replace '^www\.', ''
-                    }
-                }
-                if ($value -match '(?i)\.exe$') {
-                    return [IO.Path]::GetFileNameWithoutExtension($value)
-                }
-            }
-        }
-        if ($texts.Count -gt 0) {
-            $text = ($texts -join ' ').Trim() -replace '\s+', ' '
-            if ($text.Length -gt 40) { return $text.Substring(0,37) + '…' }
-            if ($text.Length -gt 0) { return $text }
-        }
-        return "Macro $index"
-    }
-    if ($key -match '^KC_(.+)$') { return $Matches[1] -replace '_', ' ' }
-    return $key
-}
-
-function Convert-Keycode([int]$Code) {
-    $basic = @{
-        0='KC_NO'; 1='KC_TRNS'; 40='KC_ENTER'; 41='KC_ESC'; 42='KC_BSPC'; 43='KC_TAB'; 44='KC_SPACE'
-        45='KC_MINUS'; 46='KC_EQUAL'; 47='KC_LBRC'; 48='KC_RBRC'; 49='KC_BSLS'; 50='KC_NUHS'
-        51='KC_SCLN'; 52='KC_QUOT'; 53='KC_GRV'; 54='KC_COMM'; 55='KC_DOT'; 56='KC_SLSH'; 57='KC_CAPS'
-        70='KC_PSCR'; 71='KC_SCRL'; 72='KC_PAUS'; 73='KC_INS'; 74='KC_HOME'; 75='KC_PGUP'
-        76='KC_DEL'; 77='KC_END'; 78='KC_PGDN'; 79='KC_RIGHT'; 80='KC_LEFT'; 81='KC_DOWN'; 82='KC_UP'
-        83='KC_NUM'; 84='KC_PSLS'; 85='KC_PAST'; 86='KC_PMNS'; 87='KC_PPLS'; 88='KC_PENT'
-        98='KC_P0'; 99='KC_PDOT'; 100='KC_NUBS'; 101='KC_APP'
-        168='KC_MUTE'; 169='KC_VOLU'; 170='KC_VOLD'; 171='KC_MNXT'; 172='KC_MPRV'; 173='KC_MSTP'; 174='KC_MPLY'
-        175='KC_MSEL'; 176='KC_EJCT'; 177='KC_MAIL'; 178='KC_CALC'; 179='KC_MYCM'
-        224='KC_LCTL'; 225='KC_LSFT'; 226='KC_LALT'; 227='KC_LGUI'; 228='KC_RCTL'; 229='KC_RSFT'; 230='KC_RALT'; 231='KC_RGUI'
-    }
-    if ($basic.ContainsKey($Code)) { return $basic[$Code] }
-    if ($Code -ge 4 -and $Code -le 29) { return 'KC_' + [char](65 + $Code - 4) }
-    if ($Code -ge 30 -and $Code -le 39) { return 'KC_' + (($Code - 29) % 10) }
-    if ($Code -ge 58 -and $Code -le 69) { return 'KC_F' + ($Code - 57) }
-    if ($Code -ge 104 -and $Code -le 115) { return 'KC_F' + ($Code - 91) }
-    if ($Code -ge 89 -and $Code -le 97) { return 'KC_P' + ($Code - 88) }
-    if ($Code -ge 0x7700 -and $Code -le 0x777F) { return 'M' + ($Code - 0x7700) }
-    if ($Code -ge 0x7E00 -and $Code -le 0x7E3F) { return 'USER{0:00}' -f ($Code - 0x7E00) }
-    if ($Code -ge 0x5700 -and $Code -le 0x57FF) { return 'Tap dance ' + ($Code - 0x5700) }
-    $families = @{ 0x5200='TO'; 0x5220='MO'; 0x5240='DF'; 0x5260='TG'; 0x5280='OSL'; 0x52C0='TT'; 0x52E0='PDF' }
-    foreach ($start in $families.Keys) {
-        if ($Code -ge $start -and $Code -lt ($start+32)) { return '{0}({1})' -f $families[$start],($Code-$start) }
-    }
-    if ($Code -ge 0x0100 -and $Code -le 0x1FFF) {
-        $mask = $Code -shr 8
-        $prefix = if ($mask -band 16) { 'Right ' } else { '' }
-        $parts = [Collections.Generic.List[string]]::new()
-        foreach ($entry in @(@(1,'Ctrl'),@(2,'Shift'),@(4,'Alt'),@(8,'Win'))) {
-            if ($mask -band $entry[0]) { $parts.Add($prefix + $entry[1]) }
-        }
-        $parts.Add(((Convert-Keycode ($Code -band 255)) -replace '^KC_',''))
-        return $parts -join ' + '
-    }
-    return '0x{0:X4}' -f $Code
-}
-
-function Convert-PadSnapshot($Snapshot) {
-    $layers = [Collections.Generic.List[object]]::new()
-    $encoders = [Collections.Generic.List[object]]::new()
-    foreach ($layer in 0..3) {
-        $rows = [Collections.Generic.List[object]]::new()
-        foreach ($row in 0..2) {
-            $keys = @(foreach ($column in 0..2) { Convert-Keycode $Snapshot.Keys[($layer*9 + $row*3 + $column)] })
-            $rows.Add($keys)
-        }
-        $layers.Add($rows.ToArray())
-        $pair = @((Convert-Keycode $Snapshot.Encoders[$layer*2]), (Convert-Keycode $Snapshot.Encoders[($layer*2+1)]))
-        $encoders.Add(@(,$pair))
-    }
-    $macros = [Collections.Generic.List[object]]::new()
-    foreach ($texts in $Snapshot.MacroTexts) {
-        $actions = [Collections.Generic.List[object]]::new()
-        foreach ($text in $texts) { $actions.Add(@('text', $text)) }
-        $macros.Add($actions.ToArray())
-    }
-    [pscustomobject]@{ layout=$layers.ToArray(); encoder_layout=$encoders.ToArray(); macro=$macros.ToArray() }
-}
-
-function Initialize-HidReader {
-    if (-not ('TogKeyDisplay.Reader' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'TogKey Hid.cs') }
-}
+# Keycode naming, .vil reading and the compiled-type cache live in a module so tests can load them.
+Import-Module (Join-Path $PSScriptRoot 'TogKey Core.psm1') -Force
 
 if ($ReadPadOnly) {
     Initialize-HidReader
     Convert-PadSnapshot ([TogKeyDisplay.Reader]::ReadOnce()) | ConvertTo-Json -Depth 20
     return
-}
-
-function Get-ResolvedKey($Data, [int]$Layer, [int]$Row, [int]$Column) {
-    $code = $Data.layout[$Layer][$Row][$Column]
-    $inherited = $Layer -gt 0 -and $code -eq 'KC_TRNS'
-    # This firmware uses layer_move: only the selected layer and default layer 0 apply.
-    if ($inherited) { $code = $Data.layout[0][$Row][$Column] }
-    [pscustomobject]@{ Code = $code; Label = Get-KeyLabel $code $Data; Inherited = $inherited }
 }
 
 if ($ValidateOnly) {
@@ -168,9 +39,8 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     throw 'Start this display with pwsh -STA, or use Start TogKey Display.cmd.'
 }
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-if (-not ('TogKeyDisplay.GlobalHotkey' -as [type])) {
-    # Filtering WM_HOTKEY in C# avoids running PowerShell for every window message.
-    Add-Type -ReferencedAssemblies ([Windows.Interop.HwndSource].Assembly.Location), ([Windows.Threading.Dispatcher].Assembly.Location) -TypeDefinition @'
+# Filtering WM_HOTKEY in C# avoids running PowerShell for every window message.
+$hotkeySource = @'
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
@@ -193,7 +63,8 @@ namespace TogKeyDisplay {
     }
 }
 '@
-}
+Import-CompiledSource -TypeName 'TogKeyDisplay.GlobalHotkey' -CacheName 'TogKeyHotkey' -Source $hotkeySource `
+    -ReferencedAssemblies ([Windows.Interop.HwndSource].Assembly.Location), ([Windows.Threading.Dispatcher].Assembly.Location)
 
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

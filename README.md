@@ -100,7 +100,7 @@ Preferences are saved in **TogKey preferences.json** beside the script; `.gitign
 
 Right-click a button tile, layer tab, or knob action to edit its display name. This also works in compact view. **Use automatic** removes an override.
 
-Automatic labels use key names, website hostnames, application executable filenames, or a short preview of macro text. Macros containing only keypress actions show their macro number. Unknown keycodes appear as hexadecimal values. There are no app-specific name rules or predefined personal layer names.
+Automatic labels use key names, website hostnames, application executable filenames, or a short preview of macro text. Macros containing only keypress actions show their macro number. Modifier combinations (**Ctrl + Shift + C**), hold-tap keys (**A · hold Ctrl**, **Space · hold Pad 2**), layer keys (**Hold for Pad 3**, **Toggle Pad 4**), one-shot modifiers, tap dances, mouse keys, browser and system keys, RGB/backlight controls, and common QMK keys such as **Bootloader** and **Caps Word** are named. Layer numbers in labels use the OLED's Pad 1–4 numbering. Other keycodes appear as hexadecimal values. There are no app-specific name rules or predefined personal layer names.
 
 Custom button and knob labels belong to a position on a particular layer. They survive mapping refreshes and continue to apply even if that position is assigned a different action, until reset. Layer selection, label editing, and tile clicks do not change the pad or execute its macros.
 
@@ -136,10 +136,23 @@ Other TogKey models and firmware identities are not supported by this release. O
 
 ## Files
 
-- `TogKey Display.ps1`: WPF interface, labels, and configuration import.
-- `TogKey Hid.cs`: Windows HID access and read-only protocol client, compiled in memory at startup.
+- `TogKey Display.ps1`: WPF interface, labels, preferences, and shortcuts.
+- `TogKey Core.psm1`: keycode names and labels, `.vil` import, and the compiled-code cache (no UI; shared with the tests).
+- `TogKey Hid.cs`: Windows HID access and read-only protocol client, compiled at first start.
 - `Start TogKey Display.cmd`: double-click launcher.
+- `tests\`: Pester tests (not needed to run the display).
 - `LICENSE`: MIT license for this utility.
+
+The C# parts (`TogKey Hid.cs` and the small hotkey helper) are compiled the first time the display starts and cached as DLLs in `%LOCALAPPDATA%\TogKeyDisplay\cache`, which saves about half a second on later launches. A cached build is used only for the exact same source and .NET runtime; editing the source or upgrading PowerShell rebuilds it automatically, and stale builds are removed. If the cache cannot be written, the display compiles in memory as before. Deleting the folder is always safe.
+
+## Tests
+
+The tests cover keycode naming and labels, `.vil` validation, the read-only command filter, reply matching and stale-reply filtering, macro decoding, a full mapping read against a simulated pad, and the compiled-code cache. They do not need a pad: protocol tests use synthetic replies in the VIA 9 / Vial 6 format rather than recordings from hardware.
+
+```powershell
+Install-PSResource Pester -Scope CurrentUser   # once; requires Pester 5
+Invoke-Pester .\tests
+```
 
 The HID client permits only the read commands it uses. It does not write mappings, change firmware, reset memory, send keyboard input, or change the unlock state. No network connection is used by the utility.
 
