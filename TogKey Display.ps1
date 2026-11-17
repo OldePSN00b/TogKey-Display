@@ -325,24 +325,40 @@ foreach ($i in 0..5) {
     [void]$controls.Tiles.Children.Add($border)
     $script:tileControls += @{ Border = $border; Label = $label; Hint = $hint }
 }
+# Physical positions of the six buttons, in tile order (top row, then bottom row).
+$script:ButtonPositions = @('TL','TM','TR','BL','BM','BR')
+$script:ButtonPositionNames = @('top left','top middle','top right','bottom left','bottom middle','bottom right')
 # Strip view: the same six buttons as one slim row, for parking along a screen edge.
+# Each tile carries its position tag, since the row no longer mirrors the pad's 3 × 2 layout.
 $script:stripTiles = @()
 foreach ($i in 0..5) {
     $border = [Windows.Controls.Border]::new()
     $border.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#202C3E')
     $border.CornerRadius = [Windows.CornerRadius]::new(6)
-    $border.Margin = [Windows.Thickness]::new(2,0,2,0)
-    $border.Padding = [Windows.Thickness]::new(6,0,6,0)
-    $border.Width = 108
+    # A wider gap after TR separates the top and bottom rows.
+    $border.Margin = [Windows.Thickness]::new(2,0,$(if ($i -eq 2) { 8 } else { 2 }),0)
+    $border.Padding = [Windows.Thickness]::new(5,0,6,0)
+    $border.Width = 120
+    $dock = [Windows.Controls.DockPanel]::new()
+    $tag = [Windows.Controls.TextBlock]::new()
+    $tag.Text = $script:ButtonPositions[$i]
+    $tag.FontSize = 9
+    $tag.FontWeight = 'Bold'
+    $tag.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#8FA5C0')
+    $tag.VerticalAlignment = 'Center'
+    $tag.Margin = [Windows.Thickness]::new(0,0,5,0)
+    [Windows.Controls.DockPanel]::SetDock($tag, 'Left')
     $label = [Windows.Controls.TextBlock]::new()
     $label.TextTrimming = 'CharacterEllipsis'
     $label.FontSize = 11
     $label.FontWeight = 'SemiBold'
     $label.TextAlignment = 'Center'
     $label.VerticalAlignment = 'Center'
-    $border.Child = $label
+    [void]$dock.Children.Add($tag)
+    [void]$dock.Children.Add($label)
+    $border.Child = $dock
     [void]$controls.StripTiles.Children.Add($border)
-    $script:stripTiles += @{ Border = $border; Label = $label }
+    $script:stripTiles += @{ Border = $border; Label = $label; Tag = $tag }
 }
 
 function Update-Display {
@@ -375,7 +391,9 @@ function Update-Display {
             $key = Get-ResolvedKey $data $layer $row $column
             $script:tileControls[$i].Label.Text = Get-DisplayLabel "button:${layer}:$i" $key.Label
             $script:tileControls[$i].Hint.Text = $(if ($key.Inherited) { 'from layer 0' } else { ' ' })
-            $script:tileControls[$i].Border.ToolTip = "Automatic: $($key.Label) • $($key.Code)`nRight-click to rename this button on layer $layer"
+            $position = "$($script:ButtonPositionNames[$i]) ($($script:ButtonPositions[$i]))"
+            $position = $position.Substring(0,1).ToUpper() + $position.Substring(1)
+            $script:tileControls[$i].Border.ToolTip = "$position · Automatic: $($key.Label) • $($key.Code)`nRight-click to rename this button on Pad $($layer+1)"
             $script:stripTiles[$i].Label.Text = $script:tileControls[$i].Label.Text
             $script:stripTiles[$i].Border.ToolTip = $script:tileControls[$i].Border.ToolTip
             $i++
@@ -475,7 +493,7 @@ function Edit-ButtonLabel([int]$Position) {
     $row = 1 + [int][Math]::Floor($Position / 3)
     $column = $Position % 3
     $automatic = (Get-ResolvedKey $script:state.Data $layer $row $column).Label
-    Edit-DisplayLabel "button:${layer}:$Position" $automatic "Pad layer $($layer+1) · button $($Position+1)"
+    Edit-DisplayLabel "button:${layer}:$Position" $automatic "Pad layer $($layer+1) · $($script:ButtonPositionNames[$Position]) button ($($script:ButtonPositions[$Position]))"
 }
 function Edit-KnobLabel([string]$Action) {
     $control = if ($Action -eq 'turn') { $controls.KnobRotate } else { $controls.KnobPress }
